@@ -1,0 +1,10 @@
+{
+    "Enabled" : true,
+    "UrlTemplate" : "http://a.tile.thunderforest.com/atlas/%z/%x/%y@2x.png",
+    "ImageFormat" : "png",
+    "QImageFormat" : "Indexed8",
+    "MaximumZoomLevel" : 20,
+    "ID" : "thf-atlas-2x",
+    "MapCopyRight" : "<a href='http://www.thunderforest.com/'>Thunderforest</a>",
+    "DataCopyRight" : "<a href='http://www.openstreetmap.org/copyright'>OpenStreetMap</a> contributors"
+}
