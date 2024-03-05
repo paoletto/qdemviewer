@@ -390,11 +390,6 @@ struct Tile
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
         const auto tileMatrix = tileTransformation(origin);
         ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8); // TODO: test readonly
-        if (joinTiles) {
-            ef->glBindImageTexture(1, (m_right && m_right->demTexture()) ? m_right->demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8);
-            ef->glBindImageTexture(2, (m_bottom && m_bottom->demTexture()) ? m_bottom->demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8);
-            ef->glBindImageTexture(3, (m_bottomRight && m_bottomRight->demTexture()) ? m_bottomRight->demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8);
-        }
 
         if (mapTexture())  {
             mapTexture()->bind();
