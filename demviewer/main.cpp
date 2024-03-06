@@ -208,6 +208,13 @@ public:
         m_transformation = qvariant_cast<QMatrix4x4>(modelTrafo);
     }
 
+    Q_INVOKABLE QPointF normalizeIfNeeded(const QPointF p) {
+        QVector2D v(p);
+        if (v.length() > 1.)
+            v.normalize();
+        return QPointF(v.x(), v.y());
+    }
+
 signals:
     void transformationChanged();
 
@@ -338,7 +345,9 @@ struct Tile
               const float elevationScale,
               const float brightness,
               const int tessellationDirection,
-              const bool joinTiles = false) const
+              const QVector3D &lightDirection,
+              const bool interactive,
+              const bool joinTiles) const
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         if (!m_shader) {
@@ -395,8 +404,7 @@ struct Tile
             mapTexture()->bind();
         }
         shader->bind();
-        shader->setUniformValue("resolutionw", m_resolution.width());
-        shader->setUniformValue("resolutionh", m_resolution.height());
+        shader->setUniformValue("resolution", m_resolution);
 
         shader->setUniformValue("elevationScale", elevationScale);
         const QMatrix4x4 m = transformation * tileMatrix;
@@ -408,6 +416,7 @@ struct Tile
         }
         shader->setUniformValue("brightness", brightness);
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
+        shader->setUniformValue("lightDirection", lightDirection);
 
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
         const int numVertices = totVertices();
@@ -578,7 +587,6 @@ protected:
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         auto *f45 = QOpenGLContext::currentContext()->versionFunctions<QOpenGLFunctions_4_5_Core>();
-        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
 
         f->glClearColor(0, 0, 0, 0);
         f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -590,6 +598,7 @@ protected:
         GLint polygonMode;
         f->glGetIntegerv(GL_POLYGON_MODE, &polygonMode);
         f45->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
+//        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
 //        f45->glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
         Origin::draw(m_arcballTransform, 1);
@@ -599,6 +608,8 @@ protected:
                    m_elevationScale,
                    m_brightness,
                    m_tessellationDirection,
+                   m_lightDirection,
+                   m_interactive,
                    m_joinTiles);
         }
 
@@ -624,7 +635,10 @@ protected:
     float m_brightness{1.};
     bool m_joinTiles{false};
     int m_tessellationDirection{0};
+    QVector3D m_lightDirection{0,0,-1};
+    bool m_interactive{false};
     std::map<TileKey, std::shared_ptr<Tile>> m_tiles {};
+    // TODO use a state struct
 };
 
 class TerrainViewer : public QQuickFramebufferObject
@@ -640,6 +654,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(int tessellationDirection READ tessellationDirection WRITE setTessellationDirection)
     Q_PROPERTY(int triangles READ numTriangles NOTIFY numTrianglesChanged)
     Q_PROPERTY(int allocatedGraphicsBytes READ allocatedGraphicsBytes NOTIFY allocatedGraphicsBytesChanged)
+    Q_PROPERTY(QVariant lightDirection READ lightDirection WRITE setLightDirection)
 
 public:
     TerrainViewer(QQuickItem *parent = nullptr) {
@@ -647,8 +662,11 @@ public:
         setTextureFollowsItemSize(true);
         setMirrorVertically(true);
         m_updateTimer.setInterval(700);
-        connect(&m_updateTimer, &QTimer::timeout, this, &QQuickItem::update);
+        connect(&m_updateTimer, &QTimer::timeout, this, &TerrainViewer::fullUpdate);
         m_updateTimer.setSingleShot(true);
+        m_provisioningUpdateTimer.setInterval(700);
+        connect(&m_provisioningUpdateTimer, &QTimer::timeout, this, &TerrainViewer::interactiveUpdate);
+        m_provisioningUpdateTimer.setSingleShot(true);
     }
     ~TerrainViewer() override {
 
@@ -771,6 +789,15 @@ public:
         emit allocatedGraphicsBytesChanged();
     }
 
+    QVariant lightDirection() const {
+        return m_lightDirection;
+    }
+
+    void setLightDirection(QVariant ld) {
+        m_lightDirection = ld.toPointF();
+        update();
+    }
+
 signals:
     void numTrianglesChanged();
     void allocatedGraphicsBytesChanged();
@@ -797,8 +824,19 @@ protected:
 
 protected slots:
     void delayedUpdate() {
-        if (!m_updateTimer.isActive())
-            m_updateTimer.start();
+        if (!m_provisioningUpdateTimer.isActive())
+            m_provisioningUpdateTimer.start();
+    }
+
+    void interactiveUpdate() {
+        m_interactive = true;
+        update();
+        m_updateTimer.start();
+    }
+
+    void fullUpdate() {
+        m_interactive = false;
+        update();
     }
 
     void onTransformationChanged() {
@@ -848,7 +886,10 @@ private:
     bool m_tessellationDirection{0};
     int m_numTriangles{0};
     int m_allocatedGraphicsBytes{0};
+    bool m_interactive{false};
+    QPointF m_lightDirection;
     QTimer m_updateTimer;
+    QTimer m_provisioningUpdateTimer;
 
     std::map<TileKey, std::shared_ptr<Heightmap>> m_newTiles;
     std::map<TileKey, std::shared_ptr<QImage>> m_newMapRasters;
@@ -875,6 +916,11 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
         m_joinTiles = viewer->joinTiles();
 
         m_tessellationDirection = viewer->tessellationDirection();
+        const auto ld = viewer->lightDirection().toPointF();
+
+        m_lightDirection = QVector3D(-ld.x(), ld.y(), 0);
+        m_lightDirection.setZ(-sqrt(1. - m_lightDirection.lengthSquared()));
+        m_interactive = viewer->m_interactive;
 
         std::map<TileKey, std::shared_ptr<Heightmap>> newTiles;
         newTiles.swap(viewer->m_newTiles);

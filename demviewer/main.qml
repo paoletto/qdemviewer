@@ -78,6 +78,8 @@ QC2.ApplicationWindow {
         property alias brightness: brightnessSlider.value
         property alias rasterEnabled: rasterEnabled.checked
         property alias invertTessDirection: invertTessDirection.checked
+        property alias lightPos: shadingSphere.pos
+        property alias joinTiles: joinTilesMenuItem.checked
         property var modelTransformation
     }
 
@@ -187,7 +189,9 @@ QC2.ApplicationWindow {
                 width: parent.width
                 Text {
                     text: "Bri"
+                    color: "white"
                     Layout.alignment: Qt.AlignVCenter
+                    Layout.leftMargin: 2
                 }
 
                 QC2.Slider {
@@ -208,6 +212,66 @@ QC2.ApplicationWindow {
             QC2.Action {
                 text: qsTr("Reset Scene")
                 onTriggered: arcball.reset()
+            }
+            ColumnLayout {
+                Text {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Light direction"
+                    color: "white"
+                }
+
+                Rectangle {
+                    id: shadingSphere
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.leftMargin: 4
+                    Layout.preferredWidth: brightnessSlider.width
+                    Layout.preferredHeight: width
+                    Layout.topMargin: 4
+                    radius: width * .5
+                    color: "grey"
+                    border.color: "black"
+                    border.width: 1
+                    smooth: true
+                    Rectangle {
+                        anchors.centerIn: parent
+                        width: 4
+                        height: width
+                        smooth: true
+                        radius: width * .5
+                        color: "black"
+                        x: parent.width * .5
+                        y: parent.height * .5
+                        anchors.alignWhenCentered: false
+                        antialiasing: true
+                    }
+                    property point pos: Qt.point(-0.2, -0.2)
+
+
+                    Rectangle {
+                        visible: parent.pos !== undefined
+                        width: 3
+                        height: width
+                        smooth: true
+                        radius: width * .5
+                        color: "red"
+                        x: (parent.pos !== undefined) ? (parent.pos.x + 1.) * parent.width * .5 : null
+                        y: (parent.pos !== undefined) ? (parent.pos.y + 1.) * parent.height * .5 : null
+                        anchors.alignWhenCentered: false
+                        antialiasing: true
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        onClicked: updateLight(mouse)
+                        onPositionChanged: updateLight(mouse)
+                        function updateLight(mouse) {
+                            var pt = (Qt.point((mouse.x - (width * .5)) / (width * .5),
+                                               (mouse.y - (height * .5)) / (height * .5)))
+                            parent.pos = arcball.normalizeIfNeeded(pt)
+                        }
+                    }
+
+                }
             }
         }
 
@@ -412,6 +476,7 @@ QC2.ApplicationWindow {
                     elevationScale: elevationSlider.value
                     brightness: brightnessSlider.value
                     tessellationDirection: invertTessDirection.checked
+                    lightDirection: shadingSphere.pos
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation

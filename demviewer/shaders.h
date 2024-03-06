@@ -74,8 +74,9 @@ static constexpr char vertexShaderTile[] = R"(
 #define IMGFMT r32f
 layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
 uniform highp mat4 matrix;
-uniform int resolutionw;
-uniform int resolutionh;
+uniform vec2 resolution;
+uniform vec2 lowRes;
+
 uniform float elevationScale;
 uniform int quadSplitDirection;
 
@@ -93,9 +94,9 @@ const vec4 vertices[4] = {
 void main()
 {
     const int splitDirectionOffset = quadSplitDirection * 6;
-    const int res = resolutionw;
+    const int res = int(resolution.x);
     const int rowSize = (res - 1);
-    const int columnSize = resolutionh - 1;
+    const int columnSize = int(resolution.y) - 1;
     const float gridSpacing = 1.0 / float(res);
 
     subQuadID = int(gl_VertexID / 6);
@@ -105,8 +106,8 @@ void main()
     const vec4 gridScaling = vec4(gridSpacing,
                                   gridSpacing,
                                   1.0, 1.0);
-    const vec2 texCoordScaling = vec2(1.0 / float(resolutionw)
-                                      ,1.0 / float(resolutionh));
+    const vec2 texCoordScaling = vec2(1.0 / resolution.x
+                                      ,1.0 / resolution.y);
 
     const int triangleID = (gl_VertexID / 3) % 2;
     int vertexID = gl_VertexID % 6;
@@ -152,8 +153,9 @@ static constexpr char vertexShaderTileFused[] = R"(
 #define IMGFMT r32f
 layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
 uniform highp mat4 matrix;
-uniform int resolutionw;
-uniform int resolutionh;
+uniform vec2 resolution;
+uniform vec2 lowRes;
+
 uniform float elevationScale;
 uniform int quadSplitDirection;
 
@@ -171,9 +173,9 @@ const vec4 vertices[4] = {
 void main()
 {
     const int splitDirectionOffset = quadSplitDirection * 6;
-    const int res = resolutionw;
+    const int res = int(resolution.x);
     const int rowSize = (res - 1);
-    const int columnSize = resolutionh - 1;
+    const int columnSize = int(resolution.y) - 1;
     const float gridSpacing = 1.0 / float(res - 2); // because first and last are half-spaced
 
     subQuadID = int(gl_VertexID / 6);
@@ -183,8 +185,8 @@ void main()
     const vec4 gridScaling = vec4(gridSpacing,
                                   gridSpacing,
                                   1.0, 1.0);
-    const vec2 texCoordScaling = vec2(1.0 / float(resolutionw)
-                                      ,1.0 / float(resolutionh));
+    const vec2 texCoordScaling = vec2(1.0 / resolution.x
+                                      ,1.0 / resolution.y);
 
     const int triangleID = (gl_VertexID / 3) % 2;
     int vertexID = gl_VertexID % 6;
@@ -235,8 +237,10 @@ uniform highp vec4 color;
 flat in int subQuadID;
 flat in vec3 normal;
 smooth in vec2 TexCoord;
+uniform vec3 lightDirection;
 
-const vec3 lightDir = normalize(vec3(0.2,-0.2,-1));
+//const vec3 lightDir = normalize(vec3(0.2,-0.2,-1));
+vec3 lightDir = lightDirection;
 const vec4 lightColor = vec4(1,1,1,1);
 
 out vec4 fragColor;
@@ -257,12 +261,14 @@ uniform highp vec4 color;
 uniform sampler2D raster;
 //uniform float[256] lightingCurve;
 uniform float brightness;
+uniform vec3 lightDirection;
 
 flat in int subQuadID;
 flat in vec3 normal;
 smooth in vec2 texCoord;
 
-const vec3 lightDir = normalize(vec3(0.2,-0.2,-1));
+//const vec3 lightDir = normalize(vec3(0.2,-0.2,-1));
+vec3 lightDir = lightDirection;
 vec4 lightColor = color;
 
 out vec4 fragColor;

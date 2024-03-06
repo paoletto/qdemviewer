@@ -654,7 +654,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
             }
         }
     }
-#else
+#endif
     if (hasBorders) {
         auto left = [&h, &borders, &elevationFromPixel] () {
             if (!borders.at(Heightmap::Left))
@@ -754,7 +754,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
         bottomLeft();
         bottomRight();
     }
-#endif
+
     h.m_hasBorders = hasBorders;
     return h;
 }
