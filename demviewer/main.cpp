@@ -346,7 +346,7 @@ struct Tile
               const float brightness,
               const int tessellationDirection,
               const QVector3D &lightDirection,
-              const bool interactive,
+              bool interactive,
               const bool joinTiles) const
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
@@ -387,8 +387,15 @@ struct Tile
             mapTexture()->bind();
         }
         shader->bind();
-        shader->setUniformValue("resolution", m_resolution);
 
+        int stride = (interactive) ? 8 : 1;
+
+        auto resolution = m_resolution;
+        if (joinTiles && interactive)
+            resolution -= QSize(2,2);
+        resolution /= stride;
+
+        shader->setUniformValue("resolution", resolution);
         shader->setUniformValue("elevationScale", elevationScale);
         const QMatrix4x4 m = transformation * tileMatrix;
         shader->setUniformValue("matrix", m);
@@ -400,10 +407,12 @@ struct Tile
         shader->setUniformValue("brightness", brightness);
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
         shader->setUniformValue("lightDirection", lightDirection);
-        shader->setUniformValue("cOff", (joinTiles) ? -0.5f: 0.5f);
+        shader->setUniformValue("cOff", (joinTiles && !interactive) ? -0.5f: 0.5f);
+        shader->setUniformValue("joined", int(joinTiles));
+        shader->setUniformValue("samplingStride", stride);
 
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
-        const int numVertices = totVertices();
+        const int numVertices = totVertices(joinTiles, stride);
 
         f->glDrawArrays(GL_TRIANGLES, 0, numVertices);
         shader->release();
@@ -411,9 +420,11 @@ struct Tile
             mapTexture()->release();
     }
 
-    inline int totVertices() const {
-        return (m_resolution.width() - 1)
-                * (m_resolution.height() - 1) * 6;
+    inline int totVertices(bool joinTiles, int stride = 1) const {
+        const int toSubtract = (joinTiles && stride > 1) ? 2 : 0;
+//        const int toAdd = (joinTiles && stride == 1) ? 2 : 0;
+        return ((m_resolution.width() - toSubtract) / stride /*+ toAdd */ - 1)
+                * ((m_resolution.height() - toSubtract) / stride /*+ toAdd*/ - 1) * 6;
     }
 
     QMatrix4x4 tileTransformation(const Tile& origin) const {
@@ -601,7 +612,7 @@ protected:
     int sceneTriangles() const {
         int count = 0;
         for (auto &t: m_tiles) {
-            count += t.second->totVertices();
+            count += t.second->totVertices(m_joinTiles);
         }
         return count / 3;
     }
@@ -641,10 +652,10 @@ public:
         setFlag(ItemHasContents);
         setTextureFollowsItemSize(true);
         setMirrorVertically(true);
-        m_updateTimer.setInterval(700);
+        m_updateTimer.setInterval(1800);
         connect(&m_updateTimer, &QTimer::timeout, this, &TerrainViewer::fullUpdate);
         m_updateTimer.setSingleShot(true);
-        m_provisioningUpdateTimer.setInterval(700);
+        m_provisioningUpdateTimer.setInterval(500);
         connect(&m_provisioningUpdateTimer, &QTimer::timeout, this, &TerrainViewer::interactiveUpdate);
         m_provisioningUpdateTimer.setSingleShot(true);
     }

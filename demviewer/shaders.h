@@ -79,6 +79,8 @@ uniform vec2 lowRes;
 uniform float elevationScale;
 uniform int quadSplitDirection;
 uniform float cOff; // coordinate offset, -0.5 || 0.5
+uniform int samplingStride;
+uniform int joined;
 
 flat out int subQuadID;
 flat out vec3 normal;
@@ -91,19 +93,21 @@ const vec4 vertices[4] = {
     ,vec4(1,0,0,1)
 };
 
+int sjoined = int(1.0 - cOff - 0.5); // 1 only when joined && !interactive
+int ijoined = joined * int(!bool(sjoined));
 int columnSize = int(resolution.y) - 1;
 int res = int(resolution.x);
 int splitDirectionOffset = quadSplitDirection * 6;
 int rowSize = (res - 1);
-float gridSpacing = 1.0 / float(res - 2); // because first and last are half-spaced
+float gridSpacing = 1.0 / float(res - 2 * sjoined); // because first and last are half-spaced in joined mode
 vec4 gridScaling = vec4(gridSpacing,
                         gridSpacing,
                         1.0, 1.0);
 
 vec4 neighbor(int id, int x, int y) {
     vec4 res = vertices[indices[id]];
-    int iY = columnSize - y - int(res.y);
-    int iX = x + int(res.x);
+    int iY = (columnSize - y - int(res.y)) * samplingStride + ijoined;
+    int iX = (x + int(res.x)) * samplingStride + ijoined;
     const float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) / elevationScale;
     res = (vec4(x + cOff, y + cOff, elevation, 0) + res) * gridScaling;
     res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
@@ -130,7 +134,7 @@ void main()
     const vec3 second = triVertex1.xyz - triVertex0.xyz;
     normal = normalize(cross(first, second));
 
-    texCoord = clamp(vec2(x + cOff, y + cOff) * texCoordScaling, vec2(0,0), vec2(1,1));
+//    texCoord = clamp(vec2(x + cOff, y + cOff) * texCoordScaling, vec2(0,0), vec2(1,1));
     texCoord = vertex.xy;
     gl_Position = matrix * vertex;
 }
