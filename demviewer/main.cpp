@@ -368,20 +368,6 @@ struct Tile
             m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                               QByteArray(fragmentShaderTileTextured));
             m_shaderTextured->link();
-
-            m_shaderFused = new QOpenGLShaderProgram;
-            m_shaderFused->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                              QByteArray(vertexShaderTileFused));
-            m_shaderFused->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                              QByteArray(fragmentShaderTile));
-            m_shaderFused->link();
-
-            m_shaderFusedTextured = new QOpenGLShaderProgram;
-            m_shaderFusedTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                              QByteArray(vertexShaderTileFused));
-            m_shaderFusedTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                              QByteArray(fragmentShaderTileTextured));
-            m_shaderFusedTextured->link();
         }
         if (!m_shader) {
             qWarning() << "Failed creating shader!";
@@ -390,11 +376,8 @@ struct Tile
         if (m_resolution.isEmpty())
             return; // skip drawing the tile
 
-        QOpenGLShaderProgram *shader = (joinTiles) ?
-                                            (mapTexture()) ? Tile::m_shaderFusedTextured
-                                                           : Tile::m_shaderFused
-                                       :    (mapTexture()) ? Tile::m_shaderTextured
-                                                           : Tile::m_shader;
+        QOpenGLShaderProgram *shader = (mapTexture()) ? Tile::m_shaderTextured
+                                                      : Tile::m_shader;
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
         const auto tileMatrix = tileTransformation(origin);
@@ -417,6 +400,7 @@ struct Tile
         shader->setUniformValue("brightness", brightness);
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
         shader->setUniformValue("lightDirection", lightDirection);
+        shader->setUniformValue("cOff", (joinTiles) ? -0.5f: 0.5f);
 
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
         const int numVertices = totVertices();
@@ -476,13 +460,9 @@ struct Tile
     static GLint m_maxTexSize;
     static QOpenGLShaderProgram *m_shader;
     static QOpenGLShaderProgram *m_shaderTextured;
-    static QOpenGLShaderProgram *m_shaderFused;
-    static QOpenGLShaderProgram *m_shaderFusedTextured;
 };
 QOpenGLShaderProgram *Tile::m_shader{nullptr};
 QOpenGLShaderProgram *Tile::m_shaderTextured{nullptr};
-QOpenGLShaderProgram *Tile::m_shaderFusedTextured{nullptr};
-QOpenGLShaderProgram *Tile::m_shaderFused{nullptr};
 GLint Tile::m_maxTexSize{0};
 
 QDebug operator<<(QDebug d, const  Tile &t) {
@@ -674,7 +654,7 @@ public:
 
     Q_INVOKABLE void reset() {
         m_reset = true;
-        update();
+        interactiveUpdate();
     }
 
     void setArcball(QVariant value) {
@@ -701,7 +681,7 @@ public:
                              this, &TerrainViewer::onCoverageReady);
             m_newTiles = m_utilities->heightmapCache();
             if (m_newTiles.size())
-                update();
+                interactiveUpdate();
         }
     }
 
@@ -722,7 +702,7 @@ public:
             m_newMapRasters = m_rasterFetcher->tileCache();
 
             if (m_newMapRasters.size())
-                update();
+                interactiveUpdate();
         }
     }
 
@@ -736,7 +716,7 @@ public:
 
     void setElevationScale(qreal scale) {
         m_elevationScale = scale;
-        update();
+        interactiveUpdate();
     }
 
     qreal brightness() const {
@@ -745,7 +725,7 @@ public:
 
     void setBrightness(qreal b) {
         m_brightness = b;
-        update();
+        interactiveUpdate();
     }
 
     bool joinTiles() const {
@@ -755,7 +735,7 @@ public:
     void setJoinTiles(bool v) {
         m_joinTiles = v;
         m_utilities->setBorders(m_joinTiles);
-        update();
+        interactiveUpdate();
     }
 
     int tessellationDirection() const {
@@ -764,7 +744,7 @@ public:
 
     void setTessellationDirection(int v) {
         m_tessellationDirection = v;
-        update();
+        interactiveUpdate();
     }
 
     int numTriangles() const {
@@ -795,7 +775,7 @@ public:
 
     void setLightDirection(QVariant ld) {
         m_lightDirection = ld.toPointF();
-        update();
+        interactiveUpdate();
     }
 
 signals:
@@ -840,7 +820,7 @@ protected slots:
     }
 
     void onTransformationChanged() {
-        update();
+        interactiveUpdate();
     }
 
     void onDtmReady(const TileKey k) {
