@@ -109,7 +109,8 @@ vec4 neighbor(int id, int x, int y) {
     int iY = (columnSize - y - int(res.y)) * samplingStride + ijoined;
     int iX = (x + int(res.x)) * samplingStride + ijoined;
     const float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) / elevationScale;
-    res = (vec4(x + cOff, y + cOff, elevation, 0) + res) * gridScaling;
+    res = (vec4(x + cOff / float(samplingStride),
+                y + cOff / float(samplingStride), elevation, 0) + res) * gridScaling;
     res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
     return res;
 }
