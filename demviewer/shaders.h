@@ -121,8 +121,8 @@ void main()
     const int x = subQuadID % rowSize;
     const int y = subQuadID / rowSize;
 
-    const vec2 texCoordScaling = vec2(1.0 / resolution.x
-                                     ,1.0 / resolution.y);
+//    const vec2 texCoordScaling = vec2(1.0 / resolution.x
+//                                     ,1.0 / resolution.y);
 
     const int triangleID = (gl_VertexID / 3) % 2;
     const int vertexID = (gl_VertexID % 6) + splitDirectionOffset;
