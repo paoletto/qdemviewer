@@ -143,14 +143,14 @@ public:
     static QString cachePath();
 
 signals:
-    void tileReady(const TileKey k);
+    void tileReady(quint64 id, const TileKey k);
     void coverageReady(quint64 id);
     void urlTemplateChanged();
 
 protected slots:
     void onTileReplyFinished();
     void onTileReplyForCoverageFinished();
-    void onInsertTile(const TileKey k, std::shared_ptr<QImage> i);
+    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
     void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
     void networkReplyError(QNetworkReply::NetworkError);
 
@@ -163,6 +163,7 @@ private:
     Q_DISABLE_COPY(MapFetcher)
 
 friend class TileReplyHandler;
+friend class NetworkIOManager;
 };
 
 class DEMFetcherPrivate;
@@ -185,7 +186,6 @@ signals:
     void heightmapCoverageReady(quint64 id);
 
 protected slots:
-    void onTileReady(const TileKey k);
     void onCoverageReady(quint64 id);
     void onInsertHeightmap(const TileKey k, std::shared_ptr<Heightmap> h);
     void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
@@ -196,9 +196,12 @@ protected:
 private:
     Q_DISABLE_COPY(DEMFetcher)
 friend class DEMReadyHandler;
+friend class NetworkIOManager;
 };
 
 Q_DECLARE_METATYPE(TileKey)
+//Q_DECLARE_METATYPE(MapFetcher)
+//Q_DECLARE_METATYPE(DEMFetcher)
 Q_DECLARE_METATYPE(std::shared_ptr<QImage>)
 Q_DECLARE_METATYPE(std::shared_ptr<Heightmap>)
 

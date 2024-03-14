@@ -104,6 +104,8 @@ struct TileKeyRegistrar
     TileKeyRegistrar()
     {
         qRegisterMetaType<TileKey>("TileKey");
+//        qRegisterMetaType<MapFetcher>("MapFetcher");
+//        qRegisterMetaType<DEMFetcher>("DEMFetcher");
         qRegisterMetaType<std::shared_ptr<QImage>>("QImageShared");
         qRegisterMetaType<std::shared_ptr<Heightmap>>("HeightmapShared");
     }
@@ -178,6 +180,7 @@ void requestMapTiles(const std::set<GeoTileSpec> &tiles,
                      const QString &urlTemplate,
                      const quint8 destinationZoom,
                      const quint64 id,
+                     const bool coverageRequest,
                      ThrottledNetworkFetcher &nam,
                      QObject *destFinished,
                      const char *onFinishedSlot,
@@ -194,6 +197,7 @@ void requestMapTiles(const std::set<GeoTileSpec> &tiles,
                         {quint64(t.ts.x()), quint64(t.ts.y()), quint8(t.ts.zoom())},
                         destinationZoom,
                         id,
+                        coverageRequest,
                         t.nb,
                         destFinished,
                         onFinishedSlot,
@@ -295,6 +299,7 @@ class NAM
 public:
     static NAM& instance()
     {
+        qDebug() << "instantiating NAM from "<<QThread::currentThread() << " , main thread: "<<qApp->thread();
         static NAM    instance;
         return instance;
     }
@@ -343,54 +348,7 @@ void MapFetcher::requestSlippyTiles(const QGeoCoordinate &ctl,
                                      const quint8 zoom,
                                      quint8 destinationZoom) {
     Q_D(MapFetcher);
-    if (!ctl.isValid() || !cbr.isValid()) { // TODO: verify cbr is actually br of ctl
-        qWarning() << "requestSlippyTiles: Invalid bounds";
-        return;
-    }
-    destinationZoom = std::min(zoom, destinationZoom); // TODO: implement the other way
-
-    auto tiles = tilesFromBounds(ctl, cbr, destinationZoom); // Calculating using dz to avoid partial coverage
-    for (const auto &t: tiles) {
-        d->trackNeighbors({quint64(t.ts.x()),
-                           quint64(t.ts.y()),
-                           destinationZoom}, t.nb);
-    }
-    if (destinationZoom != zoom) {
-        // split tiles to request
-        quint64 destSideLength = 1 << int(destinationZoom);
-        quint64 sideLength = 1 << int(zoom);
-        const size_t numSubtiles = sideLength / destSideLength;
-        std::set<GeoTileSpec> srcTiles;
-        for (const auto &dt: tiles) {
-            for (size_t y = 0; y < numSubtiles; ++y) {
-                for (size_t x = 0; x < numSubtiles; ++x) {
-                    const size_t sx =
-                            quint64((quint64(dt.ts.x()) * sideLength) / destSideLength) + x;
-                    const size_t sy =
-                            quint64((quint64(dt.ts.y()) * sideLength) / destSideLength) + y;
-                    QGeoTileSpec st(dt.ts.plugin(), dt.ts.mapId(), zoom
-                                    , sx
-                                    , sy
-                                    , dt.ts.version());
-                    srcTiles.insert({st, dt.nb});
-                }
-            }
-        }
-        tiles.swap(srcTiles);
-    }
-
-    const QString urlTemplate = (d->m_urlTemplate.isEmpty())
-                                    ? urlTemplateTerrariumS3
-                                    : d->m_urlTemplate;
-    QVector<GeoTileSpec> ss(tiles.begin(), tiles.end());
-
-    requestMapTiles(tiles,
-                    urlTemplate,
-                    destinationZoom,
-                    0,
-                    d->m_nm,
-                    this, SLOT(onTileReplyFinished()),
-                    this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
+    d->requestSlippyTiles(ctl, cbr, zoom, destinationZoom);
 }
 
 namespace  {
@@ -453,7 +411,7 @@ void MapFetcher::onTileReplyFinished() {
         return; // Already handled in networkReplyError
     }
 
-    auto *handler = new TileReplyHandler(reply, this);
+    auto *handler = new TileReplyHandler(reply, this, this);
     d->m_worker->schedule(handler);
 }
 
@@ -523,11 +481,13 @@ quint8 MapFetcher::zoomForCoverage(const QGeoCoordinate &ctl,
 }
 
 quint64 MapFetcher::cacheSize() {
-    return NAM::instance().cacheSize();
+//    return NAM::instance().cacheSize();
+    return 0;
 }
 
 QString MapFetcher::cachePath() {
-    return NAM::instance().cachePath();
+//    return NAM::instance().cachePath();
+    return "";
 }
 
 // returns request id. 0 is invalid
@@ -536,6 +496,7 @@ quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
                                     const quint8 zoom,
                                     const bool clip)
 {
+#if 0
     Q_D(MapFetcher);
     if (!ctl.isValid() || !cbr.isValid()) // ToDo: check more toroughly
     {
@@ -551,6 +512,7 @@ quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
                     urlTemplate,
                     zoom,
                     d->m_coverageRequestID,
+                    true,
                     d->m_nm,
                     this, SLOT(onTileReplyForCoverageFinished()),
                     this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
@@ -561,6 +523,9 @@ quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
     auto res = d->m_coverageRequestID;
     ++d->m_coverageRequestID;
     return res;
+#else
+    return 0;
+#endif
 }
 
 void MapFetcher::onTileReplyForCoverageFinished()
@@ -580,14 +545,15 @@ void MapFetcher::onTileReplyForCoverageFinished()
         return; // Already handled in networkReplyError
     }
 
-    auto *handler = new TileReplyHandler(reply, this);
+    auto *handler = new TileReplyHandler(reply, this, this);
     d->m_worker->schedule(handler);
 }
 
-void MapFetcher::onInsertTile(const TileKey k, std::shared_ptr<QImage> i) {
+void MapFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
     Q_D(MapFetcher);
+    // TODO: discriminate by id
     d->m_tileCache.emplace(k, std::move(i));
-    emit tileReady(k);
+    emit tileReady(id, k);
 }
 
 void MapFetcher::onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i)
@@ -856,17 +822,13 @@ void ThreadedJobQueue::next() {
 
 MapFetcher::MapFetcher(QObject *parent)
 : QObject(*new MapFetcherPrivate, parent) {
-    Q_D(MapFetcher);
     initTileKey();
-    d->m_worker->setParent(this);
 }
 
 MapFetcher::MapFetcher(MapFetcherPrivate &dd, QObject *parent)
 :   QObject(dd, parent)
 {
-    Q_D(MapFetcher);
     initTileKey();
-    d->m_worker->setParent(this);
 }
 
 MapFetcherPrivate::MapFetcherPrivate()
@@ -898,18 +860,33 @@ std::shared_ptr<QImage> MapFetcherPrivate::peekTile(const TileKey k)
     return nullptr;
 }
 
+void MapFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8 destinationZoom)
+{
+    Q_Q(MapFetcher);
+    NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom, destinationZoom);
+}
+
 QString MapFetcherPrivate::objectName() const
 {
     Q_Q(const MapFetcher);
     return q->objectName();
 }
 
-TileReplyHandler::TileReplyHandler(QNetworkReply *reply, MapFetcher *mapFetcher)
-    : m_reply(reply), m_mapFetcher(mapFetcher)
+TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
+                                   MapFetcher *mapFetcher,
+                                   QObject *insertReceiver,
+                                   bool last)
+    : m_reply(reply), m_mapFetcher(mapFetcher), m_last(last)
 {
     reply->setParent(this);
-    connect(this, &TileReplyHandler::insertTile, m_mapFetcher, &MapFetcher::onInsertTile, Qt::QueuedConnection);
-    connect(this, &TileReplyHandler::insertCoverage, m_mapFetcher, &MapFetcher::onInsertCoverage, Qt::QueuedConnection);
+    connect(this,
+            SIGNAL(insertTile(quint64,TileKey,std::shared_ptr<QImage>)),
+            insertReceiver,
+            SLOT(onInsertTile(quint64,TileKey,std::shared_ptr<QImage>)), Qt::QueuedConnection);
+//    connect(this,
+//            SIGNAL(insertCoverage(quint64,std::shared_ptr<QImage>)),
+//            insertReceiver,
+//            SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
     connect(this, &TileReplyHandler::insertTile, this, &ThreadedJob::finished);
     connect(this, &TileReplyHandler::insertCoverage, this, &ThreadedJob::finished);
     connect(this, &TileReplyHandler::expectingMoreSubtiles, this, &ThreadedJob::finished);
@@ -922,6 +899,7 @@ ThreadedJob::ThreadedJob()
     connect(this, &ThreadedJob::finished, this, &QObject::deleteLater);
 }
 
+// Might not be needed, according to doc "When a QObject is moved to another thread, all its children will be automatically moved too."
 void ThreadedJob::move2thread(QThread &t) {
     std::function<void(QObject *)> moveChildren2Thread;
     moveChildren2Thread = [&t, &moveChildren2Thread](QObject *o) {
@@ -938,7 +916,7 @@ void TileReplyHandler::process()
 {
     if (!m_reply)
         return;
-    if (m_reply->property("ID").isValid())
+    if (m_reply->property("c").toBool())
         processCoverageTile();
     else
         processStandaloneTile();
@@ -958,13 +936,13 @@ void TileReplyHandler::processStandaloneTile()
     const quint64 y = reply->property("y").toUInt();
     const quint8 z = reply->property("z").toUInt();
     const quint8 dz = reply->property("dz").toUInt();
+    const quint64 id = reply->property("ID").toUInt();
     const Heightmap::Neighbors boundaries = Heightmap::Neighbors(reply->property("b").toUInt());
     TileKey k;
 
     if (z == dz) {
         k = TileKey{x,y,z};
-//        m_mapFetcher->d_func()->trackNeighbors(k, boundaries);
-        emit insertTile(k, std::make_shared<QImage>(QImage::fromData(std::move(data))));
+        emit insertTile(id, k, std::make_shared<QImage>(QImage::fromData(std::move(data))));
     } else {
         int destSideLength = 1 << dz;
         int sideLength = 1 << z;
@@ -979,8 +957,7 @@ void TileReplyHandler::processStandaloneTile()
 
         if (subCache.size() == totSubTiles) {
             QImage image = assembleTileFromSubtiles(subCache);
-//            m_mapFetcher->d_func()->trackNeighbors(k, boundaries); // They all have the same sourceTile bounds
-            emit insertTile(TileKey{dx,dy,dz}, std::make_shared<QImage>(std::move(image)));
+            emit insertTile(id, TileKey{dx,dy,dz}, std::make_shared<QImage>(std::move(image)));
             m_mapFetcher->tileCacheCache().erase(dk);
         } else {
             emit expectingMoreSubtiles();
@@ -1134,6 +1111,7 @@ void ThrottledNetworkFetcher::requestTile(const QUrl &u,
                                           const TileKey &k,
                                           const quint8 destinationZoom,
                                           const quint64 id,
+                                          const bool coverageRequest,
                                           const Heightmap::Neighbors boundaries,
                                           QObject *destFinished,
                                           const char *onFinishedSlot,
@@ -1150,6 +1128,7 @@ void ThrottledNetworkFetcher::requestTile(const QUrl &u,
                                   k,
                                   destinationZoom,
                                   id,
+                                  coverageRequest,
                                   boundaries,
                                   destFinished,
                                   std::string(onFinishedSlot),
@@ -1162,6 +1141,7 @@ void ThrottledNetworkFetcher::requestTile(const QUrl &u,
             k,
             destinationZoom,
             id,
+            coverageRequest,
             boundaries,
             destFinished,
             onFinishedSlot,
@@ -1179,14 +1159,24 @@ void ThrottledNetworkFetcher::onFinished()
         TileKey k;
         quint8 dz;
         quint64 id;
+        bool coverageRequest;
         quint32 boundaries;
         QObject *destFinished;
         std::string onFinishedSlot;
         QObject *destError;
         std::string onErrorSlot;
 
-        std::tie(u,k,dz,id,boundaries,destFinished,onFinishedSlot,destError,onErrorSlot) = m_pendingRequests.dequeue();
-        request(u, k, dz, id, Heightmap::Neighbors(boundaries)
+        std::tie(u,
+                 k,
+                 dz,
+                 id,
+                 coverageRequest,
+                 boundaries,
+                 destFinished,
+                 onFinishedSlot,
+                 destError,
+                 onErrorSlot) = m_pendingRequests.dequeue();
+        request(u, k, dz, id, coverageRequest, Heightmap::Neighbors(boundaries)
                 , destFinished, onFinishedSlot.c_str(), destError, onErrorSlot.c_str());
     }
 }
@@ -1195,6 +1185,7 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
                                       const TileKey &k,
                                       const quint8 destinationZoom,
                                       const quint64 id,
+                                      const bool coverage,
                                       const Heightmap::Neighbors boundaries,
                                       QObject *destFinished,
                                       const char *onFinishedSlot,
@@ -1214,6 +1205,7 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
     reply->setProperty("b", quint32(boundaries));
     if (id > 0)
         reply->setProperty("ID",id);
+    reply->setProperty("c", coverage);
     if (destFinished && onFinishedSlot)
         connect(reply, SIGNAL(finished()), destFinished, onFinishedSlot);
     if (destError && onErrorSlot)
@@ -1269,75 +1261,6 @@ void DEMFetcher::setBorders(bool borders)
     d->m_borders = borders; // FIXME: this must not happen while processing a request!!
 }
 
-void DEMFetcher::onTileReady(const TileKey k)
-{
-    Q_D(DEMFetcher);
-    auto t = d->peekTile(k);
-    if (!t) {
-        qWarning() << "DEMFetcher::onTileReady: "<<k<< " not ready!";
-        return;
-    }
-    if (!d->m_borders) {
-        t.reset();
-        auto h = new DEMReadyHandler(tile(k),
-                                     k,
-                                     *this,
-                                     0);
-        d->m_worker->schedule(h);
-    } else {
-        // check if all borders are available
-        if (d->m_tileNeighbors.find(k) == d->m_tileNeighbors.end()) {
-            // error
-            qWarning() << "Warning: neighbors missing for tile "<<k;
-            return;
-        }
-        auto neighborsComplete = [d](const TileKey &k) {
-            auto &nm = d->m_tileNeighbors[k];
-            for (const auto n: neighbors) {
-                if (nm.first.testFlag(n) && !nm.second[n])
-                    return false;
-            }
-            return true;
-        };
-        auto existsNeighbor = [k,d](Heightmap::Neighbor n) {
-            TileKey nk = k + neighborOffsets.at(n);
-            const auto res = d->m_tileNeighbors.find(nk) != d->m_tileNeighbors.end();
-            return res;
-        };
-
-        auto handleNeighborsComplete = [this, d](TileKey tk) {
-            auto tt = d->peekTile(tk);
-            if (!bool(tt))
-                return;
-            tt.reset();
-            std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> tileNeighbors;
-            tileNeighbors.swap(d->m_tileNeighbors[tk].second);
-            d->m_tileNeighbors.erase(tk);
-            auto h = new DEMReadyHandler(tile(tk),
-                                         tk,
-                                         *this,
-                                         0,
-                                         tileNeighbors);
-            d->m_worker->schedule(h);
-        };
-
-        if (neighborsComplete(k))
-            handleNeighborsComplete(k);
-
-        // Propagate tile into neighbors
-        for (const auto n: neighbors) {
-            if (existsNeighbor(n)) {
-                TileKey nk = k + neighborOffsets.at(n);
-                // TODO: add flag check?
-                d->m_tileNeighbors[nk].second[neighborReciprocal.at(n)] = t;
-                if (neighborsComplete(nk))
-                    handleNeighborsComplete(nk);
-            }
-        }
-
-    }
-}
-
 void DEMFetcher::onCoverageReady(quint64 id)
 {
     Q_D(DEMFetcher);
@@ -1372,7 +1295,7 @@ DEMFetcher::DEMFetcher(DEMFetcherPrivate &dd, QObject *parent)
 
 void DEMFetcher::init()
 {
-    connect(this, &MapFetcher::tileReady, this, &DEMFetcher::onTileReady);
+//    connect(this, &MapFetcher::tileReady, this, &DEMFetcher::onTileReady);
     connect(this, &MapFetcher::coverageReady, this, &DEMFetcher::onCoverageReady);
 }
 
@@ -1413,10 +1336,301 @@ DEMFetcherPrivate::DEMFetcherPrivate() : MapFetcherPrivate() {}
 
 DEMFetcherPrivate::~DEMFetcherPrivate() {}
 
-void DEMFetcherPrivate::trackNeighbors(const TileKey k, Heightmap::Neighbors n) {
-    m_tileNeighbors[k] = {n, boundaryRasters};
+void DEMFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8 destinationZoom)
+{
+    Q_Q(DEMFetcher);
+    NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom);
 }
+
+//void DEMFetcherPrivate::trackNeighbors(const TileKey k, Heightmap::Neighbors n) {
+//    m_tileNeighbors[k] = {n, boundaryRasters};
+//}
 
 
 
 //TODO: dedicated event loop thread for piping queued slots . threaded network requests. Threaded gl texture upload
+
+NetworkIOManager::NetworkIOManager() : m_worker(new ThreadedJobQueue) {}
+
+void NetworkIOManager::requestSlippyTiles(MapFetcher *mapFetcher,
+                                          quint64 requestId,
+                                          const QGeoCoordinate &ctl,
+                                          const QGeoCoordinate &cbr,
+                                          const quint8 zoom,
+                                          quint8 destinationZoom)
+{
+    qDebug() << "NetworkIOManager::requestSlippyTiles";
+    if (!m_nm)
+        m_nm = new ThrottledNetworkFetcher(this);
+    if (!ctl.isValid() || !cbr.isValid()) { // TODO: verify cbr is actually br of ctl
+        qWarning() << "requestSlippyTiles: Invalid bounds";
+        return;
+    }
+    destinationZoom = std::min(zoom, destinationZoom); // TODO: implement the other way
+
+
+    MapFetcher *f = mapFetcher;
+//    if (m_registeredConsumers.find(f) == m_registeredConsumers.end()) {
+//        // connect
+////        void tileReady(const TileKey k);
+////        void coverageReady(quint64 id);
+
+//    }
+    m_request2Consumer.emplace(requestId, f);
+
+
+    auto tiles = tilesFromBounds(ctl, cbr, destinationZoom); // Calculating using dz to avoid partial coverage
+//    for (const auto &t: tiles) {
+//        trackNeighbors(requestId, {quint64(t.ts.x()),
+//                                   quint64(t.ts.y()),
+//                                   destinationZoom}, t.nb);
+//    }
+    if (destinationZoom != zoom) {
+        // split tiles to request
+        quint64 destSideLength = 1 << int(destinationZoom);
+        quint64 sideLength = 1 << int(zoom);
+        const size_t numSubtiles = sideLength / destSideLength;
+        std::set<GeoTileSpec> srcTiles;
+        for (const auto &dt: tiles) {
+            for (size_t y = 0; y < numSubtiles; ++y) {
+                for (size_t x = 0; x < numSubtiles; ++x) {
+                    const size_t sx =
+                            quint64((quint64(dt.ts.x()) * sideLength) / destSideLength) + x;
+                    const size_t sy =
+                            quint64((quint64(dt.ts.y()) * sideLength) / destSideLength) + y;
+                    QGeoTileSpec st(dt.ts.plugin(), dt.ts.mapId(), zoom
+                                    , sx
+                                    , sy
+                                    , dt.ts.version());
+                    srcTiles.insert({st, dt.nb});
+                }
+            }
+        }
+        tiles.swap(srcTiles);
+    }
+
+    const QString urlTemplate = (mapFetcher->urlTemplate().isEmpty()) // TODO: this is technically thread-unsafe
+                                    ? urlTemplateTerrariumS3
+                                    : mapFetcher->urlTemplate();
+
+    //QVector<GeoTileSpec> ss(tiles.begin(), tiles.end());
+    m_request2remainingTiles.emplace(requestId, tiles.size());
+    requestMapTiles(tiles,
+                    urlTemplate,
+                    destinationZoom,
+                    requestId,
+                    false,
+                    *m_nm,
+                    this, SLOT(onTileReplyFinished()),
+                    this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
+}
+
+void NetworkIOManager::requestSlippyTiles(DEMFetcher *demFetcher,
+                                          quint64 requestId,
+                                          const QGeoCoordinate &ctl,
+                                          const QGeoCoordinate &cbr,
+                                          const quint8 zoom)
+{
+    qDebug() << "NetworkIOManager::requestSlippyTiles DEM";
+    if (!m_nm)
+        m_nm = new ThrottledNetworkFetcher(this);
+    if (!ctl.isValid() || !cbr.isValid()) { // TODO: verify cbr is actually br of ctl
+        qWarning() << "requestSlippyTiles: Invalid bounds";
+        return;
+    }
+    MapFetcher *f = demFetcher;
+    m_request2Consumer.emplace(requestId, f);
+    auto tiles = tilesFromBounds(ctl, cbr, zoom); // Calculating using dz to avoid partial coverage
+    for (const auto &t: tiles) {
+        trackNeighbors(requestId, {quint64(t.ts.x()),
+                                   quint64(t.ts.y()),
+                                   zoom}, t.nb);
+    }
+    const QString urlTemplate = (demFetcher->urlTemplate().isEmpty()) // TODO: this is technically thread-unsafe
+                                    ? urlTemplateTerrariumS3
+                                    : demFetcher->urlTemplate();
+
+    m_request2remainingTiles.emplace(requestId, tiles.size());
+    requestMapTiles(tiles,
+                    urlTemplate,
+                    zoom,
+                    requestId,
+                    false,
+                    *m_nm,
+                    this, SLOT(onDEMTileReplyFinished()),
+                    this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
+}
+
+void NetworkIOManager::onTileReplyFinished()
+{
+    qDebug() << "NetworkIOManager::onTileReplyFinished";
+    QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    // const bool cached = reply->attribute(QNetworkRequest::SourceIsFromCacheAttribute).toBool();
+
+    disconnect(reply, SIGNAL(finished()), this, SLOT(onTileReplyFinished()));
+    disconnect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
+                this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
+
+    const quint64 id = reply->property("ID").toUInt();
+    if (m_request2remainingTiles.find(id) == m_request2remainingTiles.end()) {
+        qWarning() << "No tracked request with id "<<id;
+    } else {
+        m_request2remainingTiles[id]--;
+    }
+
+    if (m_request2Consumer.find(id) == m_request2Consumer.end()) {
+        qWarning() << "No consumer with id "<< id;
+    }
+
+    const bool last = !m_request2remainingTiles[id];
+    auto *fetcher = m_request2Consumer.at(id);
+    if (last) {
+//        m_request2remainingTiles.erase(id);
+//        m_request2Consumer.erase(id); // used in  NetworkIOManager::onInsertTile
+    }
+
+    if (reply->error() != QNetworkReply::NoError) {
+        // TODO: emit request completed if (last)
+        return; // Already handled in networkReplyError
+    }
+    auto *handler = new TileReplyHandler(reply,
+                                         fetcher,
+                                         fetcher,
+                                         last);
+    m_worker->schedule(handler);
+}
+
+void NetworkIOManager::onDEMTileReplyFinished()
+{
+    qDebug() << "NetworkIOManager::onDEMTileReplyFinished";
+    QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+
+    disconnect(reply, SIGNAL(finished()), this, SLOT(onDEMTileReplyFinished()));
+    disconnect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)),
+                this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
+
+    const quint64 id = reply->property("ID").toUInt();
+    if (m_request2remainingTiles.find(id) == m_request2remainingTiles.end()) {
+        qWarning() << "No tracked request with id "<<id;
+    } else {
+        m_request2remainingTiles[id]--;
+    }
+
+    const bool last = !m_request2remainingTiles[id];
+    auto *fetcher = m_request2Consumer.at(id);
+    if (last) {
+//        m_request2remainingTiles.erase(id);
+//        m_request2Consumer.erase(id);
+    }
+
+    if (reply->error() != QNetworkReply::NoError) {
+        // TODO: emit request completed if (last)
+        return; // Already handled in networkReplyError
+    }
+    auto *handler = new TileReplyHandler(reply,
+                                         fetcher,
+                                         this,
+                                         last);
+    m_worker->schedule(handler);
+}
+
+// Currently used only for DEM
+void NetworkIOManager::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i)
+{
+    if (m_request2Consumer.find(id) == m_request2Consumer.end()) {
+        qWarning() << "Request not existing: "<<id;
+        return;
+    }
+
+    DEMFetcher *f = qobject_cast<DEMFetcher *>(m_request2Consumer.at(id));
+    DEMFetcherPrivate *d = static_cast<DEMFetcherPrivate *>(QObjectPrivate::get(f));
+    d->m_tileCache.emplace(k, std::move(i)); // f->onInsertTile also emits
+
+    auto t = d->peekTile(k);
+    if (!t) {
+        qWarning() << "DEMFetcher::onTileReady: "<<k<< " not ready!";
+        return;
+    }
+    if (!d->m_borders) {
+        t.reset();
+        auto h = new DEMReadyHandler(d->tile(k),
+                                     k,
+                                     *f,
+                                     0);
+        d->m_worker->schedule(h);
+    } else {
+        if (m_request2Neighbors.find(id) == m_request2Neighbors.end()) {
+            qWarning() << "Neighbors not existing for request: "<<id;
+            return;
+        }
+        TileNeighborsMap &tileNeighbors = m_request2Neighbors[id];
+        // check if all borders are available
+        if (tileNeighbors.find(k) == tileNeighbors.end()) {
+            // error
+            qWarning() << "Warning: neighbors missing for tile "<<k;
+            return;
+        }
+        auto neighborsComplete = [&tileNeighbors](const TileKey &k) {
+            auto &nm = tileNeighbors[k];
+            for (const auto n: neighbors) {
+                if (nm.first.testFlag(n) && !nm.second[n])
+                    return false;
+            }
+            return true;
+        };
+        auto existsNeighbor = [k,&tileNeighbors](Heightmap::Neighbor n) {
+            TileKey nk = k + neighborOffsets.at(n);
+            const auto res = tileNeighbors.find(nk) != tileNeighbors.end();
+            return res;
+        };
+
+        auto handleNeighborsComplete = [f, d, &tileNeighbors](TileKey tk) {
+            auto tt = d->peekTile(tk);
+            if (!bool(tt))
+                return;
+            tt.reset();
+            std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> tileNeighbors_;
+            tileNeighbors_.swap(tileNeighbors[tk].second);
+            tileNeighbors.erase(tk);
+            auto h = new DEMReadyHandler(d->tile(tk),
+                                         tk,
+                                         *f,
+                                         0,
+                                         tileNeighbors_);
+            d->m_worker->schedule(h);
+        };
+
+        if (neighborsComplete(k))
+            handleNeighborsComplete(k);
+
+        // Propagate tile into neighbors
+        for (const auto n: neighbors) {
+            if (existsNeighbor(n)) {
+                TileKey nk = k + neighborOffsets.at(n);
+                // TODO: add flag check?
+                tileNeighbors[nk].second[neighborReciprocal.at(n)] = t;
+                if (neighborsComplete(nk))
+                    handleNeighborsComplete(nk);
+            }
+        }
+
+    }
+}
+
+void NetworkIOManager::networkReplyError(QNetworkReply::NetworkError)
+{
+    QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
+    if (!reply)
+        return;
+    qWarning() << reply->error() << reply->errorString();
+    reply->deleteLater();
+
+}
+
+void NetworkIOManager::trackNeighbors(quint64 requestId, const TileKey k, Heightmap::Neighbors n) {
+    m_request2Neighbors[requestId][k] = {n, boundaryRasters};
+}

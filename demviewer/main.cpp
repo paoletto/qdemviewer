@@ -848,7 +848,7 @@ protected slots:
         delayedUpdate();
     }
 
-    void onMapTileReady(const TileKey k) {
+    void onMapTileReady(quint64 id, const TileKey k) {
         if (!m_rasterFetcher)
             return;
         m_newMapRasters.emplace(k, m_rasterFetcher->tile(k));
