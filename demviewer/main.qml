@@ -532,7 +532,7 @@ QC2.ApplicationWindow {
                     function formatNumber (num) {
                         return num.toString().replace(/(\d)(?=(\d{3})+(?!\d))/g, "$1,")
                     }
-                    text: "Num triangles: " + formatNumber(viewer.triangles)
+                    text: "Triangles: " + formatNumber(viewer.triangles)
                 }
                 Text {
                     anchors {
