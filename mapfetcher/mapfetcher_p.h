@@ -31,6 +31,12 @@
 #include <set>
 #include <unordered_set>
 
+using HeightmapCache = std::map<TileKey, std::shared_ptr<Heightmap>>;
+using TileNeighborsMap = std::map<TileKey,
+                            std::pair< Heightmap::Neighbors,
+                                       std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>>>;
+using TileCache = std::map<TileKey, std::shared_ptr<QImage>>;
+using TileCacheCache = std::map<TileKey, std::set<TileData>>;
 
 class ThreadedJob : public QObject
 {
@@ -49,61 +55,6 @@ signals:
     void start();
 
 friend class ThreadedJobQueue;
-};
-
-class TileReplyHandler : public ThreadedJob
-{
-    Q_OBJECT
-public:
-    TileReplyHandler(QNetworkReply *reply,
-                     MapFetcher *mapFetcher,
-                     QObject *insertReceiver,
-                     bool last = false);
-    ~TileReplyHandler() override;;
-
-signals:
-    void insertTile(quint64 id,TileKey k, std::shared_ptr<QImage> i);
-    void insertCoverage(quint64 id, std::shared_ptr<QImage> i);
-    void expectingMoreSubtiles();
-
-public slots:
-    void process() override;
-
-private:
-    void processStandaloneTile();
-    void processCoverageTile();
-    void finalizeCoverageRequest(quint64 id);
-
-    QNetworkReply *m_reply{nullptr};
-    MapFetcher *m_mapFetcher{nullptr};
-    bool m_last{false};
-};
-
-class DEMReadyHandler : public ThreadedJob
-{
-    Q_OBJECT
-public:
-    DEMReadyHandler(std::shared_ptr<QImage> demImage,
-                    const TileKey k,
-                    DEMFetcher &demFetcher,
-                    quint64 coverageId,
-                    std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> neighbors = {});
-
-    ~DEMReadyHandler() override;
-
-signals:
-    void insertHeightmap(const TileKey k, std::shared_ptr<Heightmap> i);
-    void insertHeightmapCoverage(quint64 coverageId, std::shared_ptr<Heightmap> i);
-
-public slots:
-    void process() override;
-
-private:
-    DEMFetcher *m_demFetcher{nullptr};
-    std::shared_ptr<QImage> m_demImage;
-    quint64 m_coverageId{0};
-    TileKey m_key;
-    std::map<Heightmap::Neighbor, std::shared_ptr<QImage> > m_neighbors;
 };
 
 class ThreadedJobQueue: public QObject
@@ -175,10 +126,8 @@ public:
     MapFetcherPrivate();
     ~MapFetcherPrivate() override;
 
-    std::shared_ptr<QImage> tile(const TileKey k);
-    std::shared_ptr<QImage> peekTile(const TileKey k);
-    virtual void trackNeighbors(const TileKey, Heightmap::Neighbors) {}
-    virtual void requestSlippyTiles(const QGeoCoordinate &ctl,
+    std::shared_ptr<QImage> tile(quint64 id, const TileKey k);
+    virtual quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
                                     const QGeoCoordinate &cbr,
                                     const quint8 zoom,
                                     quint8 destinationZoom);
@@ -186,15 +135,15 @@ public:
     QString objectName() const;
 
     QString m_urlTemplate;
-//    ThrottledNetworkFetcher m_nm;
 
-    std::map<TileKey, std::shared_ptr<QImage>> m_tileCache;
-    std::map<TileKey, std::set<TileData>> m_tileCacheCache;
-    quint64 m_coverageRequestID{1};
-    std::map<quint64, std::tuple<QGeoCoordinate, QGeoCoordinate, quint8, quint64, bool>> m_requests;
-    std::map<quint64, std::set<TileData>> m_tileSets;
+    std::map<quint64, TileCache> m_tileCache;
+//    std::map<TileKey, std::shared_ptr<QImage>> m_tileCache;
+//    std::map<TileKey, std::set<TileData>> m_tileCacheCache;
+//    quint64 m_coverageRequestID{1};
+//    std::map<quint64, std::tuple<QGeoCoordinate, QGeoCoordinate, quint8, quint64, bool>> m_requests;
+//    std::map<quint64, std::set<TileData>> m_tileSets;
     std::map<quint64, std::shared_ptr<QImage>> m_coverages;
-    QScopedPointer<ThreadedJobQueue> m_worker{nullptr}; // TODO: figure how to use a qthreadpool and move qobjects to it
+//    QScopedPointer<ThreadedJobQueue> m_worker{nullptr}; // TODO: figure how to use a qthreadpool and move qobjects to it
     const QImage m_empty;
 };
 
@@ -206,14 +155,135 @@ public:
     DEMFetcherPrivate();
     ~DEMFetcherPrivate() override;
 
-    void requestSlippyTiles(const QGeoCoordinate &ctl,
+    quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
                             const QGeoCoordinate &cbr,
                             const quint8 zoom,
                             quint8 destinationZoom) override;
 
-//    void trackNeighbors(const TileKey k, Heightmap::Neighbors n) override;
+    std::map<quint64, HeightmapCache> m_heightmapCache;
+    std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
+    bool m_borders{false};
+};
 
-    std::map<TileKey, std::shared_ptr<Heightmap>> m_heightmapCache;
+class MapFetcherWorkerPrivate;
+class MapFetcherWorker : public QObject {
+    Q_DECLARE_PRIVATE(MapFetcherWorker)
+    Q_OBJECT
+
+public:
+    MapFetcherWorker(QObject *parent, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker);
+    ~MapFetcherWorker() override = default;
+
+    void requestSlippyTiles(quint64 requestId,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            quint8 destinationZoom);
+
+    void requestCoverage(quint64 requestId,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            const bool clip = false);
+
+    std::shared_ptr<QImage> tile(quint64 requestId, const TileKey &k);
+    std::shared_ptr<QImage> tileCoverage(quint64 id);
+
+    void setURLTemplate(const QString &urlTemplate);
+
+signals:
+    void tileReady(quint64 id, const TileKey k, std::shared_ptr<QImage>);
+    void coverageReady(quint64 id, std::shared_ptr<QImage>);
+
+protected slots:
+    void onTileReplyFinished();
+    void onTileReplyForCoverageFinished();
+    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
+    void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
+    void networkReplyError(QNetworkReply::NetworkError);
+
+protected:
+    MapFetcherWorker(MapFetcherWorkerPrivate &dd, QObject *parent = nullptr);
+
+private:
+    Q_DISABLE_COPY(MapFetcherWorker)
+
+friend class TileReplyHandler;
+friend class NetworkIOManager;
+};
+class MapFetcherWorkerPrivate :  public QObjectPrivate
+{
+    Q_DECLARE_PUBLIC(MapFetcherWorker)
+
+public:
+    MapFetcherWorkerPrivate() :  QObjectPrivate() {}
+    ~MapFetcherWorkerPrivate() override = default;
+
+    std::shared_ptr<QImage> tile(quint64 requestId, const TileKey &k);
+    std::shared_ptr<QImage> peekTile(quint64 requestId, const TileKey &k);
+    virtual void trackNeighbors(quint64, const TileKey &, Heightmap::Neighbors) {}
+    QString objectName() const;
+
+    QString m_urlTemplate;
+    ThrottledNetworkFetcher m_nm;
+    std::map<quint64, TileCache> m_tileCache;
+    std::map<quint64, TileCacheCache> m_tileCacheCache;
+
+    std::map<quint64, std::tuple<QGeoCoordinate,  // tl
+                                 QGeoCoordinate,  // br
+                                 quint8,          // zoom
+                                 quint64,         // numTiles
+                                 bool             // clip
+                                >> m_requests;
+    std::map<quint64, std::set<TileData>> m_tileSets;
+    std::map<quint64, std::shared_ptr<QImage>> m_coverages;
+    QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
+    MapFetcher *m_fetcher{nullptr};
+    std::unordered_map<quint64, quint64> m_request2remainingTiles;
+    const QImage m_empty;
+};
+
+class DEMFetcherWorkerPrivate;
+class DEMFetcherWorker : public MapFetcherWorker {
+    Q_DECLARE_PRIVATE(DEMFetcherWorker)
+    Q_OBJECT
+
+public:
+    DEMFetcherWorker(QObject *parent, DEMFetcher *f, QSharedPointer<ThreadedJobQueue> worker, bool borders=false);
+    ~DEMFetcherWorker() override = default;
+
+    std::shared_ptr<Heightmap> heightmap(const TileKey k);
+    std::shared_ptr<Heightmap> heightmapCoverage(quint64 id);
+
+signals:
+    void heightmapReady(quint64 id, const TileKey k, std::shared_ptr<Heightmap>);
+    void heightmapCoverageReady(quint64 id, std::shared_ptr<Heightmap>);
+
+protected slots:
+    void onInsertTile(quint64 id, const TileKey k,  std::shared_ptr<QImage> i);
+    void onCoverageReady(quint64 id,  std::shared_ptr<QImage> i);
+    void onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h);
+    void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
+
+protected:
+//    DEMFetcherWorker(DEMFetcherWorkerPrivate &dd, QObject *parent = nullptr);
+    void init();
+private:
+    Q_DISABLE_COPY(DEMFetcherWorker)
+friend class DEMReadyHandler;
+friend class NetworkIOManager;
+};
+class DEMFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
+{
+    Q_DECLARE_PUBLIC(DEMFetcherWorker)
+public:
+    DEMFetcherWorkerPrivate();
+    ~DEMFetcherWorkerPrivate() override;
+
+    void trackNeighbors(quint64 id, const TileKey &k, Heightmap::Neighbors n) override;
+
+    std::map<quint64, TileNeighborsMap> m_request2Neighbors;
+    std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
     bool m_borders{false};
 };
@@ -222,9 +292,6 @@ class NetworkIOManager: public QObject //living in a separate thread
 {
     Q_OBJECT
 
-    using TileNeighborsMap = std::map<TileKey,
-                                std::pair< Heightmap::Neighbors,
-                                           std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>>>;
 public:
     NetworkIOManager();
     ~NetworkIOManager() override = default;
@@ -243,54 +310,26 @@ public slots:
                                const QGeoCoordinate &cbr,
                                const quint8 zoom);
 
-//    void requestCoverage(MapFetcher &mapFetcher,
-//                            quint64 requestId,
-//                            const QGeoCoordinate &ctl,
-//                            const QGeoCoordinate &cbr,
-//                            const quint8 zoom,
-//                            const bool clip = false) {
+    void requestCoverage(MapFetcher *mapFetcher,
+                            quint64 requestId,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            const bool clip = false);
 
-//    }
-
-//    void requestCoverage(DEMFetcher &demFetcher,
-//                            quint64 requestId,
-//                            const QGeoCoordinate &ctl,
-//                            const QGeoCoordinate &cbr,
-//                            const quint8 zoom,
-//                            const bool clip = false) {
-
-//    }
-
-signals:
-    void heightmapReady(const TileKey k);
-    void heightmapCoverageReady(quint64 id);
-    void tileReady(quint64 id, const TileKey k);
-    void coverageReady(quint64 id);
-
-protected slots:
-    void onTileReplyFinished();
-    void onDEMTileReplyFinished();
-//    void onTileReplyForCoverageFinished();
-    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
-//    void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
-    void networkReplyError(QNetworkReply::NetworkError);
-
-protected slots:
-//    void onInsertHeightmap(TileKey k, std::shared_ptr<Heightmap> h);
-//    void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
-
-protected:
-    void trackNeighbors(quint64 requestId, const TileKey k, Heightmap::Neighbors n);
+    void requestCoverage(DEMFetcher *demFetcher,
+                            quint64 requestId,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            const bool clip = false);
 
 
 protected:
-    QScopedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
-    std::unordered_map<quint64, quint64> m_request2remainingTiles;
-    std::unordered_map<quint64, MapFetcher *> m_request2Consumer;
-//    std::unordered_set<MapFetcher *> m_registeredConsumers;
+    QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
 
-    std::map<quint64, TileNeighborsMap> m_request2Neighbors;
-    ThrottledNetworkFetcher *m_nm{nullptr};
+    std::unordered_map<MapFetcher *, MapFetcherWorker *> m_mapFetcher2Worker;
+    std::unordered_map<DEMFetcher *, DEMFetcherWorker *> m_demFetcher2Worker;
 };
 
 // singleton to use a single QNAM
@@ -359,5 +398,60 @@ private:
     quint64 m_coverageRequestID{1};
 };
 
+class TileReplyHandler : public ThreadedJob
+{
+    Q_OBJECT
+public:
+    TileReplyHandler(QNetworkReply *reply,
+                     MapFetcherWorker &mapFetcher,
+                     bool last = false);
+    ~TileReplyHandler() override;;
+
+signals:
+    void insertTile(quint64 id,TileKey k, std::shared_ptr<QImage> i);
+    void insertCoverage(quint64 id, std::shared_ptr<QImage> i);
+    void expectingMoreSubtiles();
+
+public slots:
+    void process() override;
+
+private:
+    void processStandaloneTile();
+    void processCoverageTile();
+    void finalizeCoverageRequest(quint64 id);
+
+    QNetworkReply *m_reply{nullptr};
+    MapFetcherWorker *m_mapFetcher{nullptr};
+    bool m_last{false};
+};
+
+class DEMReadyHandler : public ThreadedJob
+{
+    Q_OBJECT
+public:
+    DEMReadyHandler(std::shared_ptr<QImage> demImage,
+                    const TileKey k,
+                    DEMFetcherWorker &demFetcher,
+                    quint64 id,
+                    bool coverage,
+                    std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> neighbors = {});
+
+    ~DEMReadyHandler() override;
+
+signals:
+    void insertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> i);
+    void insertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> i);
+
+public slots:
+    void process() override;
+
+private:
+    DEMFetcherWorker *m_demFetcher{nullptr};
+    std::shared_ptr<QImage> m_demImage;
+    quint64 m_requestId{0};
+    bool m_coverage;
+    TileKey m_key;
+    std::map<Heightmap::Neighbor, std::shared_ptr<QImage> > m_neighbors;
+};
 
 #endif

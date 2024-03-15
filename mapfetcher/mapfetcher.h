@@ -115,7 +115,7 @@ public:
     // onto which the tile is used as texture.
     // This API allows to fetch a different (larger) ZL and assemble it
     // into an image that matches the destinationZoom
-    Q_INVOKABLE void requestSlippyTiles(const QGeoCoordinate &ctl,
+    Q_INVOKABLE quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
                                         const QGeoCoordinate &cbr,
                                         const quint8 zoom,
                                         quint8 destinationZoom);
@@ -125,10 +125,10 @@ public:
                                         const quint8 zoom,
                                         const bool clip = false);
 
-    std::shared_ptr<QImage> tile(const TileKey k);
+    std::shared_ptr<QImage> tile(quint64 id, const TileKey k);
     std::shared_ptr<QImage> tileCoverage(quint64 id);
 
-    std::map<TileKey, std::shared_ptr<QImage> > tileCache();
+//    std::map<TileKey, std::shared_ptr<QImage> > tileCache();
 
     Q_INVOKABLE void setURLTemplate(const QString &urlTemplate);
     QString urlTemplate() const;
@@ -148,15 +148,10 @@ signals:
     void urlTemplateChanged();
 
 protected slots:
-    void onTileReplyFinished();
-    void onTileReplyForCoverageFinished();
     void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
     void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
-    void networkReplyError(QNetworkReply::NetworkError);
 
 protected:
-    std::map<TileKey, std::set<TileData>> &tileCacheCache();
-
     MapFetcher(MapFetcherPrivate &dd, QObject *parent = nullptr);
 
 private:
@@ -175,19 +170,17 @@ public:
     DEMFetcher(QObject *parent, bool borders=false);
     ~DEMFetcher() override = default;
 
-    std::shared_ptr<Heightmap> heightmap(const TileKey k);
+    std::shared_ptr<Heightmap> heightmap(quint64 id, const TileKey k);
     std::shared_ptr<Heightmap> heightmapCoverage(quint64 id);
-    std::map<TileKey, std::shared_ptr<Heightmap> > heightmapCache();
 
     void setBorders(bool borders);
 
 signals:
-    void heightmapReady(const TileKey k);
+    void heightmapReady(quint64 id, const TileKey k);
     void heightmapCoverageReady(quint64 id);
 
 protected slots:
-    void onCoverageReady(quint64 id);
-    void onInsertHeightmap(const TileKey k, std::shared_ptr<Heightmap> h);
+    void onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h);
     void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
 
 protected:

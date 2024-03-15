@@ -690,9 +690,9 @@ public:
                              this, &TerrainViewer::onDtmReady);
             QObject::connect(m_utilities, &DEMFetcher::heightmapCoverageReady,
                              this, &TerrainViewer::onCoverageReady);
-            m_newTiles = m_utilities->heightmapCache();
-            if (m_newTiles.size())
-                interactiveUpdate();
+//            m_newTiles = m_utilities->heightmapCache();
+//            if (m_newTiles.size())
+//                interactiveUpdate();
         }
     }
 
@@ -710,10 +710,10 @@ public:
             QObject::connect(m_rasterFetcher, &MapFetcher::coverageReady,
                              this, &TerrainViewer::onMapCoverageReady);
 
-            m_newMapRasters = m_rasterFetcher->tileCache();
+//            m_newMapRasters = m_rasterFetcher->tileCache();
 
-            if (m_newMapRasters.size())
-                interactiveUpdate();
+//            if (m_newMapRasters.size())
+//                interactiveUpdate();
         }
     }
 
@@ -834,8 +834,8 @@ protected slots:
         interactiveUpdate();
     }
 
-    void onDtmReady(const TileKey k) {
-        m_newTiles.emplace(k, m_utilities->heightmap(k));
+    void onDtmReady(quint64 id, const TileKey k) {
+        m_newTiles.emplace(k, m_utilities->heightmap(id, k));
         delayedUpdate();
     }
 
@@ -851,7 +851,7 @@ protected slots:
     void onMapTileReady(quint64 id, const TileKey k) {
         if (!m_rasterFetcher)
             return;
-        m_newMapRasters.emplace(k, m_rasterFetcher->tile(k));
+        m_newMapRasters.emplace(k, m_rasterFetcher->tile(id, k));
         delayedUpdate();
     }
 
