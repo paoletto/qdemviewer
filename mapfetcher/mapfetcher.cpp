@@ -50,6 +50,8 @@
 #include <vector>
 #include <map>
 
+QAtomicInt NetworkConfiguration::offline{false};
+
 namespace  {
 static constexpr std::array<Heightmap::Neighbor, 8> neighbors = {
         Heightmap::Top,
@@ -797,18 +799,26 @@ ThreadedJobQueue::~ThreadedJobQueue() {
 void ThreadedJobQueue::schedule(ThreadedJob *handler) {
     handler->move2thread(m_thread);
     connect(handler, &ThreadedJob::finished, &m_thread, &QThread::quit);
-    m_jobs.enqueue(handler);
+    m_jobs.push(handler);
 
-    if (!m_thread.isRunning())
-        next();
+    if (!m_thread.isRunning()) {
+        qDebug() << "nextReal";
+        nextReal();
+    }
 }
 
 void ThreadedJobQueue::next() {
-    if (m_thread.isRunning() || m_jobs.isEmpty()) {
+    qDebug() << "next";
+    nextReal();
+}
+
+void ThreadedJobQueue::nextReal() {
+    if (m_thread.isRunning() || m_jobs.empty()) {
         return;
     }
 
-    m_currentJob = m_jobs.dequeue();
+    m_currentJob = m_jobs.front();
+    m_jobs.pop();
     connect(&m_thread, SIGNAL(started()), m_currentJob, SLOT(process()));
     m_thread.start();
 }
@@ -1176,7 +1186,11 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
                                       const char *onErrorSlot)
 {
     QNetworkRequest request;
-    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, QNetworkRequest::PreferCache);
+    QNetworkRequest::CacheLoadControl cacheSetting{QNetworkRequest::PreferCache};
+    if (NetworkConfiguration::offline)
+        cacheSetting = QNetworkRequest::AlwaysCache;
+
+    request.setAttribute(QNetworkRequest::CacheLoadControlAttribute, cacheSetting);
     request.setHeader(QNetworkRequest::UserAgentHeader, QCoreApplication::applicationName());
     request.setUrl(u);
 
@@ -1389,7 +1403,7 @@ void NetworkIOManager::requestSlippyTiles(DEMFetcher *demFetcher,
     DEMFetcherWorker *w;
     auto it = m_demFetcher2Worker.find(f);
     if (it == m_demFetcher2Worker.end()) {
-        w = new DEMFetcherWorker(this, f, m_worker);
+        w = new DEMFetcherWorker(this, f, m_worker, f->d_func()->m_borders);
         m_demFetcher2Worker.insert({f, w});
         connect(w,
                 SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<Heightmap>)),
@@ -1443,7 +1457,7 @@ void NetworkIOManager::requestCoverage(DEMFetcher *demFetcher, quint64 requestId
     DEMFetcherWorker *w;
     auto it = m_demFetcher2Worker.find(f);
     if (it == m_demFetcher2Worker.end()) {
-        w = new DEMFetcherWorker(this, f, m_worker);
+        w = new DEMFetcherWorker(this, f, m_worker, f->d_func()->m_borders);
         m_demFetcher2Worker.insert({f, w});
         connect(w,
                 SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<Heightmap>)),
@@ -1763,7 +1777,7 @@ void MapFetcherWorker::setURLTemplate(const QString &urlTemplate) {
 }
 
 void MapFetcherWorker::onTileReplyFinished() {
-    qDebug() << "NetworkIOManager::onTileReplyFinished";
+    qDebug() << objectName() << "::onTileReplyFinished";
     Q_D(MapFetcherWorker);
     QNetworkReply *reply = static_cast<QNetworkReply *>(sender());
     if (!reply)
@@ -1834,8 +1848,15 @@ void MapFetcherWorker::networkReplyError(QNetworkReply::NetworkError) {
     reply->deleteLater();
 }
 
-MapFetcherWorker::MapFetcherWorker(MapFetcherWorkerPrivate &dd, QObject *parent)
-    :   QObject(dd, parent) {}
+MapFetcherWorker::MapFetcherWorker(MapFetcherWorkerPrivate &dd, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker, QObject *parent)
+:   QObject(dd, parent)
+{
+    Q_D(MapFetcherWorker);
+    d->m_fetcher = f;
+    d->m_worker = worker;
+}
+
+DEMFetcherWorkerPrivate::DEMFetcherWorkerPrivate() : MapFetcherWorkerPrivate() {}
 
 void DEMFetcherWorkerPrivate::trackNeighbors(quint64 id, const TileKey &k, Heightmap::Neighbors n)
 {
@@ -1843,7 +1864,7 @@ void DEMFetcherWorkerPrivate::trackNeighbors(quint64 id, const TileKey &k, Heigh
 }
 
 DEMFetcherWorker::DEMFetcherWorker(QObject *parent, DEMFetcher *f, QSharedPointer<ThreadedJobQueue> worker, bool borders)
-    :   MapFetcherWorker(parent, f, worker)
+    :   MapFetcherWorker(*new DEMFetcherWorkerPrivate, f, worker, parent)
 {
     Q_D(DEMFetcherWorker);
     d->m_borders = borders;

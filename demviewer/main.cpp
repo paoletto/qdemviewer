@@ -646,6 +646,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(int triangles READ numTriangles NOTIFY numTrianglesChanged)
     Q_PROPERTY(int allocatedGraphicsBytes READ allocatedGraphicsBytes NOTIFY allocatedGraphicsBytesChanged)
     Q_PROPERTY(QVariant lightDirection READ lightDirection WRITE setLightDirection)
+    Q_PROPERTY(bool offline READ offline WRITE setOffline NOTIFY offlineChanged)
 
 public:
     TerrainViewer(QQuickItem *parent = nullptr) {
@@ -789,9 +790,21 @@ public:
         interactiveUpdate();
     }
 
+    bool offline() {
+        return NetworkConfiguration::offline;
+    }
+
+    void setOffline(bool offline) {
+        if (NetworkConfiguration::offline == offline)
+            return;
+        NetworkConfiguration::offline = offline;
+        emit offlineChanged();
+    }
+
 signals:
     void numTrianglesChanged();
     void allocatedGraphicsBytesChanged();
+    void offlineChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override {

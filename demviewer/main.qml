@@ -77,6 +77,7 @@ QC2.ApplicationWindow {
         property alias zlMapSliderValue: zlMapSlider.value
         property alias brightness: brightnessSlider.value
         property alias rasterEnabled: rasterEnabled.checked
+        property alias offline: offline.checked
         property alias invertTessDirection: invertTessDirection.checked
         property alias lightPos: shadingSphere.pos
         property alias joinTiles: joinTilesMenuItem.checked
@@ -115,11 +116,15 @@ QC2.ApplicationWindow {
                 enabled: mapFetcher.urlTemplate !== ""
             }
             QC2.Action {
+                id: offline
+                text: qsTr("Offline")
+                checkable: true
+                checked: false
+            }
+            QC2.Action {
                 text: qsTr("Clear Data")
                 onTriggered: viewer.reset()
             }
-
-
         }
         QC2.Menu {
             title: qsTr("Provider")
@@ -477,6 +482,7 @@ QC2.ApplicationWindow {
                     brightness: brightnessSlider.value
                     tessellationDirection: invertTessDirection.checked
                     lightDirection: shadingSphere.pos
+                    offline: offline.checked
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation

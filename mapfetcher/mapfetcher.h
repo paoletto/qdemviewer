@@ -70,6 +70,10 @@ struct TileData {
     bool operator<(const TileData& o) const;
 };
 
+struct NetworkConfiguration {
+    static QAtomicInt offline;
+};
+
 struct Heightmap {
     enum Neighbor {
         Top = 1 << 0,

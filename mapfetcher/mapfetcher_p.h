@@ -29,6 +29,7 @@
 #include <unordered_map>
 #include <map>
 #include <set>
+#include <queue>
 #include <unordered_set>
 
 using HeightmapCache = std::map<TileKey, std::shared_ptr<Heightmap>>;
@@ -66,13 +67,14 @@ public:
 
     void schedule(ThreadedJob *handler);
 
-signals:
-
 protected slots:
     void next();
 
 protected:
-    QQueue<ThreadedJob *> m_jobs;
+    void nextReal();
+
+protected:
+    std::queue<ThreadedJob *> m_jobs;
     QObject *m_currentJob{nullptr};
     QThread m_thread;
 };
@@ -203,7 +205,7 @@ protected slots:
     void networkReplyError(QNetworkReply::NetworkError);
 
 protected:
-    MapFetcherWorker(MapFetcherWorkerPrivate &dd, QObject *parent = nullptr);
+    MapFetcherWorker(MapFetcherWorkerPrivate &dd, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker, QObject *parent = nullptr);
 
 private:
     Q_DISABLE_COPY(MapFetcherWorker)
@@ -278,7 +280,7 @@ class DEMFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
     Q_DECLARE_PUBLIC(DEMFetcherWorker)
 public:
     DEMFetcherWorkerPrivate();
-    ~DEMFetcherWorkerPrivate() override;
+    ~DEMFetcherWorkerPrivate() override = default;
 
     void trackNeighbors(quint64 id, const TileKey &k, Heightmap::Neighbors n) override;
 
