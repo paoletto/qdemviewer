@@ -26,6 +26,8 @@
 #include <QtCore/private/qobject_p.h>
 #include <QQueue>
 #include <QThread>
+#include <QTimer>
+#include <QCoreApplication>
 #include <unordered_map>
 #include <map>
 #include <set>
@@ -54,6 +56,7 @@ public slots:
 signals:
     void finished();
     void start();
+    void error();
 
 friend class ThreadedJobQueue;
 };
@@ -71,10 +74,10 @@ protected slots:
     void next();
 
 protected:
-    void nextReal();
-
-protected:
-    std::queue<ThreadedJob *> m_jobs;
+    struct JobComparator {
+        bool operator()(const ThreadedJob * l, const ThreadedJob * r) const;
+    };
+    std::priority_queue<ThreadedJob *, std::vector<ThreadedJob *>,  JobComparator> m_jobs;
     QObject *m_currentJob{nullptr};
     QThread m_thread;
 };
@@ -329,15 +332,81 @@ public slots:
                             const quint8 zoom,
                             const bool clip = false);
 
+protected:
+    void init() {
+        if (!m_worker)
+            m_worker = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue);
+        if (!m_timer) {
+//            m_timer.reset(new QTimer);
+//            m_timer->setInterval(1000);
+//            m_timer->setSingleShot(false);
+//            connect(
+//                m_timer.get(), &QTimer::timeout,
+//                []() { QCoreApplication::processEvents(); }
+//            );
+//            m_timer->start();
+        }
+    }
+
+    MapFetcherWorker *getMapFetcherWorker(MapFetcher *f) {
+        MapFetcherWorker *w;
+        auto it = m_mapFetcher2Worker.find(f);
+        if (it == m_mapFetcher2Worker.end()) {
+            init();
+            w = new MapFetcherWorker(this, f, m_worker);
+            m_mapFetcher2Worker.insert({f, w});
+            connect(w,
+                    SIGNAL(tileReady(quint64,TileKey,std::shared_ptr<QImage>)),
+                    f,
+                    SLOT(onInsertTile(quint64,TileKey,std::shared_ptr<QImage>)), Qt::QueuedConnection);
+            connect(w,
+                    SIGNAL(coverageReady(quint64,std::shared_ptr<QImage>)),
+                    f,
+                    SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
+        } else {
+            w = it->second;
+        }
+        return w;
+    }
+
+    DEMFetcherWorker *getDEMFetcherWorker(DEMFetcher *f) {
+        DEMFetcherWorker *w;
+        auto it = m_demFetcher2Worker.find(f);
+        if (it == m_demFetcher2Worker.end()) {
+            init();
+            w = new DEMFetcherWorker(this, f, m_worker, f->d_func()->m_borders);
+            m_demFetcher2Worker.insert({f, w});
+            connect(w,
+                    SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<Heightmap>)),
+                    f,
+                    SLOT(onInsertHeightmap(quint64,TileKey,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+            connect(w,
+                    SIGNAL(heightmapCoverageReady(quint64,std::shared_ptr<Heightmap>)),
+                    f,
+                    SLOT(onInsertHeightmapCoverage(quint64,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+        } else {
+            w = it->second;
+        }
+        return w;
+    }
 
 protected:
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
-
+    QScopedPointer<QTimer> m_timer;
     std::unordered_map<MapFetcher *, MapFetcherWorker *> m_mapFetcher2Worker;
     std::unordered_map<DEMFetcher *, DEMFetcherWorker *> m_demFetcher2Worker;
 };
 
 // singleton to use a single QNAM
+struct LoopedThread : public QThread {
+    LoopedThread(QObject *parent = nullptr) : QThread(parent) {}
+    ~LoopedThread() override = default;
+
+//    void run() override {
+//        exec();
+//    }
+};
+
 class NetworkManager
 {
 public:
@@ -414,12 +483,11 @@ public:
 
 private:
     NetworkManager() : m_manager(new NetworkIOManager) {
-        qDebug() << "NetworkManager()";
+        m_thread.setObjectName("NetworkIOHandler Thread");
         m_manager->moveToThread(&m_thread);
-        qDebug() << "NetworkManager() starting thread";
         m_thread.start();
     }
-    QThread m_thread; // network ops happens in here
+    LoopedThread m_thread; // network ops happens in here
     QScopedPointer<NetworkIOManager> m_manager;
     quint64 m_requestID{1};
 };
@@ -463,6 +531,9 @@ public:
                     std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> neighbors = {});
 
     ~DEMReadyHandler() override;
+    const TileKey &tileKey() const {
+        return m_key;
+    }
 
 signals:
     void insertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> i);

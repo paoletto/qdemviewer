@@ -20,6 +20,7 @@
 
 #include "networksqlitecache_p.h"
 #include <QFileInfo>
+#include <QRandomGenerator>
 
 namespace {
 static QString randomString(int length)
@@ -30,7 +31,7 @@ static QString randomString(int length)
    QString randomString;
    for(int i=0; i<randomStringLength; ++i)
    {
-       int index = qrand() % possibleCharacters.length();
+       int index = QRandomGenerator::global()->generate() % possibleCharacters.length();
        QChar nextChar = possibleCharacters.at(index);
        randomString.append(nextChar);
    }
@@ -171,7 +172,7 @@ QIODevice *NetworkSqliteCache::data(const QUrl &url) {
     return nullptr;
 }
 
-bool NetworkSqliteCache::remove(const QUrl &url) {
+bool NetworkSqliteCache::remove(const QUrl &/*url*/) {
     return false; // Currently removing from cache not supported.
 }
 

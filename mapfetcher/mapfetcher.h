@@ -132,8 +132,6 @@ public:
     std::shared_ptr<QImage> tile(quint64 id, const TileKey k);
     std::shared_ptr<QImage> tileCoverage(quint64 id);
 
-//    std::map<TileKey, std::shared_ptr<QImage> > tileCache();
-
     Q_INVOKABLE void setURLTemplate(const QString &urlTemplate);
     QString urlTemplate() const;
 

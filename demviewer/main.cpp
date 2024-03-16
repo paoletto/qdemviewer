@@ -443,8 +443,8 @@ struct Tile
         return res;
     }
 
-    size_t allocatedGraphicsMemoryBytes() const {
-        size_t res = 0;
+    quint64 allocatedGraphicsMemoryBytes() const {
+        quint64 res = 0;
         if (m_texDem)
             res += m_texDem->width() * m_texDem->height() * 4;
         if (m_texMap)
@@ -544,8 +544,8 @@ public:
         m_tiles.clear();
     }
 
-    size_t allocatedGraphicsMemoryBytes() const {
-        size_t res = 0;
+    quint64 allocatedGraphicsMemoryBytes() const {
+        quint64 res = 0;
         for (const auto &t: m_tiles)
             res += t.second->allocatedGraphicsMemoryBytes();
         return res;
@@ -592,6 +592,9 @@ protected:
 //        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
 //        f45->glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
+
+        const bool fast = (m_interactive && m_fastInteraction) || (m_fastInteraction && !m_autoRefinement);
+
         Origin::draw(m_arcballTransform, 1);
         for (auto &t: m_tiles) {
             t.second->draw(m_arcballTransform,
@@ -600,7 +603,7 @@ protected:
                    m_brightness,
                    m_tessellationDirection,
                    m_lightDirection,
-                   m_interactive,
+                   fast,
                    m_joinTiles);
         }
 
@@ -609,8 +612,8 @@ protected:
             m_window->resetOpenGLState();
     }
 
-    int sceneTriangles() const {
-        int count = 0;
+    quint64 sceneTriangles() const {
+        quint64 count = 0;
         for (auto &t: m_tiles) {
             count += t.second->totVertices(m_joinTiles);
         }
@@ -628,6 +631,8 @@ protected:
     int m_tessellationDirection{0};
     QVector3D m_lightDirection{0,0,-1};
     bool m_interactive{false};
+    bool m_fastInteraction{false};
+    bool m_autoRefinement{false};
     std::map<TileKey, std::shared_ptr<Tile>> m_tiles {};
     // TODO use a state struct
 };
@@ -643,10 +648,12 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness)
     Q_PROPERTY(bool joinTiles READ joinTiles WRITE setJoinTiles)
     Q_PROPERTY(int tessellationDirection READ tessellationDirection WRITE setTessellationDirection)
-    Q_PROPERTY(int triangles READ numTriangles NOTIFY numTrianglesChanged)
-    Q_PROPERTY(int allocatedGraphicsBytes READ allocatedGraphicsBytes NOTIFY allocatedGraphicsBytesChanged)
+    Q_PROPERTY(quint64 triangles READ numTriangles NOTIFY numTrianglesChanged)
+    Q_PROPERTY(quint64 allocatedGraphicsBytes READ allocatedGraphicsBytes NOTIFY allocatedGraphicsBytesChanged)
     Q_PROPERTY(QVariant lightDirection READ lightDirection WRITE setLightDirection)
     Q_PROPERTY(bool offline READ offline WRITE setOffline NOTIFY offlineChanged)
+    Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
+    Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
 
 public:
     TerrainViewer(QQuickItem *parent = nullptr) {
@@ -691,9 +698,6 @@ public:
                              this, &TerrainViewer::onDtmReady);
             QObject::connect(m_utilities, &DEMFetcher::heightmapCoverageReady,
                              this, &TerrainViewer::onCoverageReady);
-//            m_newTiles = m_utilities->heightmapCache();
-//            if (m_newTiles.size())
-//                interactiveUpdate();
         }
     }
 
@@ -710,11 +714,6 @@ public:
                              this, &TerrainViewer::onMapTileReady);
             QObject::connect(m_rasterFetcher, &MapFetcher::coverageReady,
                              this, &TerrainViewer::onMapCoverageReady);
-
-//            m_newMapRasters = m_rasterFetcher->tileCache();
-
-//            if (m_newMapRasters.size())
-//                interactiveUpdate();
         }
     }
 
@@ -759,22 +758,22 @@ public:
         interactiveUpdate();
     }
 
-    int numTriangles() const {
+    quint64 numTriangles() const {
         return m_numTriangles;
     }
 
-    void setNumTriangles(int t) {
+    void setNumTriangles(quint64 t) {
         if (m_numTriangles == t)
             return;
         m_numTriangles = t;
         emit numTrianglesChanged();
     }
 
-    int allocatedGraphicsBytes() const {
+    quint64 allocatedGraphicsBytes() const {
         return m_allocatedGraphicsBytes;
     }
 
-    void setAllocatedGraphicsBytes(size_t bytes) {
+    void setAllocatedGraphicsBytes(quint64 bytes) {
         if (bytes == m_allocatedGraphicsBytes)
             return;
         m_allocatedGraphicsBytes = bytes;
@@ -790,7 +789,7 @@ public:
         interactiveUpdate();
     }
 
-    bool offline() {
+    bool offline() const {
         return NetworkConfiguration::offline;
     }
 
@@ -801,10 +800,37 @@ public:
         emit offlineChanged();
     }
 
+    bool fastInteraction() const {
+        return m_fastInteraction;
+    }
+
+    void setFastInteraction(bool enabled) {
+        if (m_fastInteraction == enabled)
+            return;
+        m_fastInteraction = enabled;
+        emit fastInteractionChanged();
+    }
+
+
+    bool autoRefinement() const {
+        return m_autoRefinement;
+    }
+
+    void setAutoRefinement(bool enabled) {
+        if (m_autoRefinement == enabled)
+            return;
+        m_autoRefinement = enabled;
+        interactiveUpdate();
+        emit autoRefinementChanged();
+    }
+
+
 signals:
     void numTrianglesChanged();
     void allocatedGraphicsBytesChanged();
     void offlineChanged();
+    void fastInteractionChanged();
+    void autoRefinementChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override {
@@ -888,9 +914,11 @@ private:
     qreal m_brightness{1.0};
     bool m_joinTiles{false};
     bool m_tessellationDirection{0};
-    int m_numTriangles{0};
-    int m_allocatedGraphicsBytes{0};
+    quint64 m_numTriangles{0};
+    quint64 m_allocatedGraphicsBytes{0};
     bool m_interactive{false};
+    bool m_fastInteraction{false};
+    bool m_autoRefinement{false};
     QPointF m_lightDirection;
     QTimer m_updateTimer;
     QTimer m_provisioningUpdateTimer;
@@ -925,6 +953,8 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
         m_lightDirection = QVector3D(-ld.x(), ld.y(), 0);
         m_lightDirection.setZ(-sqrt(1. - m_lightDirection.lengthSquared()));
         m_interactive = viewer->m_interactive;
+        m_fastInteraction = viewer->m_fastInteraction;
+        m_autoRefinement = viewer->m_autoRefinement;
 
         std::map<TileKey, std::shared_ptr<Heightmap>> newTiles;
         newTiles.swap(viewer->m_newTiles);
@@ -1019,7 +1049,7 @@ int main(int argc, char *argv[])
     qDebug() << "Network cache dir: " << MapFetcher::cachePath();
 
     engine.load(url);
-
+    QThread::currentThread()->setObjectName("Main Thread");
     return app.exec();
 }
 

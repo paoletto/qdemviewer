@@ -77,6 +77,8 @@ QC2.ApplicationWindow {
         property alias zlMapSliderValue: zlMapSlider.value
         property alias brightness: brightnessSlider.value
         property alias rasterEnabled: rasterEnabled.checked
+        property alias fastInteraction: fastInteractionMenuItem.checked
+        property alias autoRefinement: autoRefinementMenuItem.checked
         property alias offline: offline.checked
         property alias invertTessDirection: invertTessDirection.checked
         property alias lightPos: shadingSphere.pos
@@ -183,6 +185,18 @@ QC2.ApplicationWindow {
                 id: joinTilesMenuItem
                 text: qsTr("Join Tiles")
                 checkable: true
+            }
+            QC2.MenuItem {
+                id: fastInteractionMenuItem
+                text: qsTr("Fast Interaction")
+                checkable: true
+                checked: true
+            }
+            QC2.MenuItem {
+                id: autoRefinementMenuItem
+                text: qsTr("Auto Refinement")
+                checkable: true
+                checked: true
             }
             QC2.Action {
                 id: invertTessDirection
@@ -483,6 +497,8 @@ QC2.ApplicationWindow {
                     tessellationDirection: invertTessDirection.checked
                     lightDirection: shadingSphere.pos
                     offline: offline.checked
+                    fastInteraction: fastInteractionMenuItem.checked
+                    autoRefinement: autoRefinementMenuItem.checked
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation
