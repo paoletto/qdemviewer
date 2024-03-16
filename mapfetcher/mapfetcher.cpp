@@ -281,6 +281,11 @@ bool TileKey::operator<(const TileKey &o) const {
             (z == o.z && y == o.y && x < o.x);
 }
 
+bool TileKey::operator>(const TileKey &o) const
+{
+    return o < *this;
+}
+
 QDebug operator<<(QDebug d, const TileKey &k) {
     QDebug nsp = d.nospace();
     nsp << "{"<<k.x <<","<<k.y<<","<<k.z<<"}";
@@ -767,7 +772,7 @@ void ThreadedJobQueue::next() {
         connect(&m_thread, SIGNAL(started()), m_currentJob, SLOT(process()));
         m_thread.start();
     }
-//    QCoreApplication::processEvents();
+//    QCoreApplication::processEvents(); // Somehow not helping
 }
 
 MapFetcher::MapFetcher(QObject *parent)

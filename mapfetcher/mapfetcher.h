@@ -47,6 +47,7 @@ struct TileKey {
     bool operator==(const TileKey& o) const;
 
     bool operator<(const TileKey& o) const;
+    bool operator>(const TileKey& o) const;
 
     friend inline constexpr const TileKey operator+(const TileKey &, const TileKey &) noexcept;
 };

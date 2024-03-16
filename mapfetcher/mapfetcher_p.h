@@ -336,16 +336,6 @@ protected:
     void init() {
         if (!m_worker)
             m_worker = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue);
-        if (!m_timer) {
-//            m_timer.reset(new QTimer);
-//            m_timer->setInterval(1000);
-//            m_timer->setSingleShot(false);
-//            connect(
-//                m_timer.get(), &QTimer::timeout,
-//                []() { QCoreApplication::processEvents(); }
-//            );
-//            m_timer->start();
-        }
     }
 
     MapFetcherWorker *getMapFetcherWorker(MapFetcher *f) {
@@ -392,7 +382,7 @@ protected:
 
 protected:
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
-    QScopedPointer<QTimer> m_timer;
+
     std::unordered_map<MapFetcher *, MapFetcherWorker *> m_mapFetcher2Worker;
     std::unordered_map<DEMFetcher *, DEMFetcherWorker *> m_demFetcher2Worker;
 };
@@ -402,6 +392,7 @@ struct LoopedThread : public QThread {
     LoopedThread(QObject *parent = nullptr) : QThread(parent) {}
     ~LoopedThread() override = default;
 
+// Somehow this isn't really helping.
 //    void run() override {
 //        exec();
 //    }
