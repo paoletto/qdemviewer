@@ -134,6 +134,11 @@ public:
                                     const quint8 zoom,
                                     quint8 destinationZoom);
 
+    virtual quint64 requestCoverage(const QGeoCoordinate &ctl,
+                                    const QGeoCoordinate &cbr,
+                                    const quint8 zoom,
+                                    bool clip);
+
     QString objectName() const;
 
     QString m_urlTemplate;
@@ -155,6 +160,11 @@ public:
                             const QGeoCoordinate &cbr,
                             const quint8 zoom,
                             quint8) override;
+
+    quint64 requestCoverage(const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            bool clip) override;
 
     std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
@@ -345,7 +355,7 @@ public:
                                const QGeoCoordinate &cbr,
                                const quint8 zoom,
                                const quint8 destinationZoom) {
-        const auto requestId = m_slippyRequestID++;
+        const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(MapFetcher *, &mapFetcher)
                                   , Q_ARG(qulonglong, requestId)
@@ -360,8 +370,7 @@ public:
                                const QGeoCoordinate &ctl,
                                const QGeoCoordinate &cbr,
                                const quint8 zoom) {
-//        const auto requestId = m_coverageRequestID++;
-        const auto requestId = m_slippyRequestID++;
+        const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(DEMFetcher *, &demFetcher)
                                   , Q_ARG(qulonglong, requestId)
@@ -371,14 +380,37 @@ public:
         return requestId;
     }
 
-//    quint64 requestCoverage(MapFetcher &mapFetcher,
-//                            const QGeoCoordinate &ctl,
-//                            const QGeoCoordinate &cbr,
-//                            const quint8 zoom,
-//                            const bool clip = false) {
-//        auto requestId = m_coverageRequestID++;
+    quint64 requestCoverage(MapFetcher &mapFetcher,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            const bool clip = false) {
+        auto requestId = m_requestID++;
+        QMetaObject::invokeMethod(m_manager.get(), "requestCoverage", Qt::QueuedConnection
+                                  , Q_ARG(MapFetcher *, &mapFetcher)
+                                  , Q_ARG(qulonglong, requestId)
+                                  , Q_ARG(QGeoCoordinate, ctl)
+                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(uchar, zoom)
+                                  , Q_ARG(bool, clip));
+        return requestId;
+    }
 
-//    }
+    quint64 requestCoverage(DEMFetcher &demFetcher,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            const bool clip = false) {
+        auto requestId = m_requestID++;
+        QMetaObject::invokeMethod(m_manager.get(), "requestCoverage", Qt::QueuedConnection
+                                  , Q_ARG(DEMFetcher *, &demFetcher)
+                                  , Q_ARG(qulonglong, requestId)
+                                  , Q_ARG(QGeoCoordinate, ctl)
+                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(uchar, zoom)
+                                  , Q_ARG(bool, clip));
+        return requestId;
+    }
 
 private:
     NetworkManager() : m_manager(new NetworkIOManager) {
@@ -389,7 +421,7 @@ private:
     }
     QThread m_thread; // network ops happens in here
     QScopedPointer<NetworkIOManager> m_manager;
-    quint64 m_slippyRequestID{1};
+    quint64 m_requestID{1};
 };
 
 class TileReplyHandler : public ThreadedJob

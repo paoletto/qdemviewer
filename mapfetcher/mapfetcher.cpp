@@ -486,7 +486,8 @@ quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
     ++d->m_coverageRequestID;
     return res;
 #else
-    return 0;
+    Q_D(MapFetcher);
+    return d->requestCoverage(ctl, cbr, zoom, clip);
 #endif
 }
 
@@ -797,6 +798,12 @@ quint64 MapFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const Q
 {
     Q_Q(MapFetcher);
     return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom, destinationZoom);
+}
+
+quint64 MapFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
+{
+    Q_Q(MapFetcher);
+    return NetworkManager::instance().requestCoverage(*q, ctl, cbr, zoom, clip);
 }
 
 QString MapFetcherPrivate::objectName() const
@@ -1255,6 +1262,12 @@ quint64 DEMFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl,
 {
     Q_Q(DEMFetcher);
     return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom);
+}
+
+quint64 DEMFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
+{
+    Q_Q(DEMFetcher);
+    return NetworkManager::instance().requestCoverage(*q, ctl, cbr, zoom, clip);
 }
 
 NetworkIOManager::NetworkIOManager() : m_worker(new ThreadedJobQueue) {}
