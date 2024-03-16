@@ -139,13 +139,7 @@ public:
     QString m_urlTemplate;
 
     std::map<quint64, TileCache> m_tileCache;
-//    std::map<TileKey, std::shared_ptr<QImage>> m_tileCache;
-//    std::map<TileKey, std::set<TileData>> m_tileCacheCache;
-//    quint64 m_coverageRequestID{1};
-//    std::map<quint64, std::tuple<QGeoCoordinate, QGeoCoordinate, quint8, quint64, bool>> m_requests;
-//    std::map<quint64, std::set<TileData>> m_tileSets;
     std::map<quint64, std::shared_ptr<QImage>> m_coverages;
-//    QScopedPointer<ThreadedJobQueue> m_worker{nullptr}; // TODO: figure how to use a qthreadpool and move qobjects to it
     const QImage m_empty;
 };
 
@@ -160,7 +154,7 @@ public:
     quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
                             const QGeoCoordinate &cbr,
                             const quint8 zoom,
-                            quint8 destinationZoom) override;
+                            quint8) override;
 
     std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
@@ -189,7 +183,6 @@ public:
                             const bool clip = false);
 
     std::shared_ptr<QImage> tile(quint64 requestId, const TileKey &k);
-    std::shared_ptr<QImage> tileCoverage(quint64 id);
 
     void setURLTemplate(const QString &urlTemplate);
 
@@ -238,7 +231,7 @@ public:
                                  bool             // clip
                                 >> m_requests;
     std::map<quint64, std::set<TileData>> m_tileSets;
-    std::map<quint64, std::shared_ptr<QImage>> m_coverages;
+
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
     MapFetcher *m_fetcher{nullptr};
     std::unordered_map<quint64, quint64> m_request2remainingTiles;
@@ -397,7 +390,6 @@ private:
     QThread m_thread; // network ops happens in here
     QScopedPointer<NetworkIOManager> m_manager;
     quint64 m_slippyRequestID{1};
-    quint64 m_coverageRequestID{1};
 };
 
 class TileReplyHandler : public ThreadedJob

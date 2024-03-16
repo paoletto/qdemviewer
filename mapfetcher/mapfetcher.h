@@ -189,7 +189,7 @@ protected slots:
 
 protected:
     DEMFetcher(DEMFetcherPrivate &dd, QObject *parent = nullptr);
-    void init();
+
 private:
     Q_DISABLE_COPY(DEMFetcher)
 friend class DEMReadyHandler;
@@ -197,8 +197,6 @@ friend class NetworkIOManager;
 };
 
 Q_DECLARE_METATYPE(TileKey)
-//Q_DECLARE_METATYPE(MapFetcher)
-//Q_DECLARE_METATYPE(DEMFetcher)
 Q_DECLARE_METATYPE(std::shared_ptr<QImage>)
 Q_DECLARE_METATYPE(std::shared_ptr<Heightmap>)
 
