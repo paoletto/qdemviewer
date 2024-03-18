@@ -83,6 +83,7 @@ QC2.ApplicationWindow {
         property alias invertTessDirection: invertTessDirection.checked
         property alias lightPos: shadingSphere.pos
         property alias joinTiles: joinTilesMenuItem.checked
+        property int selectedProvider: 0
         property var modelTransformation
     }
 
@@ -133,6 +134,11 @@ QC2.ApplicationWindow {
             Repeater {
                 model: root.urlTemplates
                 id: repeaterProviders
+                onItemAdded: {
+                    if (count > settings.selectedProvider)
+                        itemAt(settings.selectedProvider).checked = true
+                }
+
                 delegate: QC2.MenuItem {
                     checkable: true;
                     text: modelData.name
@@ -146,6 +152,7 @@ QC2.ApplicationWindow {
                         if (checked) {
                             console.log("Selecting ", template)
                             mapFetcher.urlTemplate = template
+                            settings.selectedProvider = index
 
                             for (let i = 0; i < repeaterProviders.count; i++) {
                                 if (i != index) {
