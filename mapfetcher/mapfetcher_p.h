@@ -336,6 +336,10 @@ public slots:
                             const quint8 zoom,
                             const bool clip = false);
 
+    quint64 cacheSize();
+
+    QString cachePath();
+
 protected:
     void init() {
         if (!m_worker)
@@ -482,6 +486,20 @@ public:
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(bool, clip));
         return requestId;
+    }
+
+    quint64 cacheSize() {
+        quint64 sz;
+        QMetaObject::invokeMethod(m_manager.get(), "cacheSize", Qt::BlockingQueuedConnection
+                                  , Q_RETURN_ARG(quint64, sz));
+        return sz;
+    }
+
+    QString cachePath() {
+        QString path;
+        QMetaObject::invokeMethod(m_manager.get(), "cachePath", Qt::BlockingQueuedConnection
+                                  , Q_RETURN_ARG(QString, path));
+        return path;
     }
 
 private:

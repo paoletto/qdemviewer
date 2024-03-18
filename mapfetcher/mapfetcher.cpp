@@ -446,53 +446,21 @@ quint8 MapFetcher::zoomForCoverage(const QGeoCoordinate &ctl,
 }
 
 quint64 MapFetcher::cacheSize() {
-//    return NAM::instance().cacheSize();
-    return 0;
+    return NetworkManager::instance().cacheSize();
 }
 
 QString MapFetcher::cachePath() {
-//    return NAM::instance().cachePath();
-    return "";
+    return NetworkManager::instance().cachePath();
 }
 
 // returns request id. 0 is invalid
-// TODO: re-enable
 quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
                                     const QGeoCoordinate &cbr,
                                     const quint8 zoom,
                                     const bool clip)
 {
-#if 0
-    Q_D(MapFetcher);
-    if (!ctl.isValid() || !cbr.isValid()) // ToDo: check more toroughly
-    {
-        qWarning() << "requestCoverage: Invalid bounds";
-        return 0;
-    }
-
-
-    const auto tiles = tilesFromBounds(ctl, cbr, zoom);
-    const QString urlTemplate = (d->m_urlTemplate.isEmpty()) ? urlTemplateTerrariumS3 : d->m_urlTemplate;
-
-    requestMapTiles(tiles,
-                    urlTemplate,
-                    zoom,
-                    d->m_coverageRequestID,
-                    true,
-                    d->m_nm,
-                    this, SLOT(onTileReplyForCoverageFinished()),
-                    this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
-
-    d->m_requests.insert({d->m_coverageRequestID,
-                       {ctl, cbr, zoom, tiles.size(), clip}});
-
-    auto res = d->m_coverageRequestID;
-    ++d->m_coverageRequestID;
-    return res;
-#else
     Q_D(MapFetcher);
     return d->requestCoverage(ctl, cbr, zoom, clip);
-#endif
 }
 
 void MapFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
@@ -757,8 +725,6 @@ void ThreadedJobQueue::schedule(ThreadedJob *handler) {
 }
 
 void ThreadedJobQueue::next() {
-//    qDebug() << "ThreadedJobQueue::next "<<QThread::currentThread() << " " <<QThread::currentThread()->objectName();
-
     if (m_thread.isRunning())
         return;
     if (m_jobs.empty())
@@ -1351,6 +1317,14 @@ void NetworkIOManager::requestCoverage(DEMFetcher *f, quint64 requestId, const Q
     DEMFetcherWorker *w = getDEMFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
     w->requestCoverage(requestId, ctl, cbr, zoom, clip);
+}
+
+quint64 NetworkIOManager::cacheSize() {
+    return NAM::instance().cacheSize();
+}
+
+QString NetworkIOManager::cachePath() {
+    return NAM::instance().cachePath();
 }
 
 // Currently used only for DEM
