@@ -14,5 +14,6 @@ See demviewer shaders for how to use it.
 
 
 
-https://github.com/paoletto/qdemviewer/assets/6912425/88238e81-36df-43b9-b3f3-37de6dbf68a2
+
+https://github.com/paoletto/qdemviewer/assets/6912425/16ccf90d-75ff-4d60-8332-35835e94240f
 
