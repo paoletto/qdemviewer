@@ -385,7 +385,7 @@ struct Tile
 
         QOpenGLShaderProgram *shader = (mapTexture()) ? m_shaderTextured
                                                       : m_shader;
-        if (interactive)
+        if (interactive && joinTiles)
             shader = m_shaderJoinedDownsampledTextured;
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
