@@ -2,7 +2,7 @@ A library/demo application for provisioning and processing
 DEM EPSG3857 tiles in terrarium format as well as regular raster tiles.
 
 The project consists of two subprojects: *mapfetcher* is a map provisioning library,
-while *demviewer* is a demo application using said library. Note that this application simply demostrates the usage of the *mapfetcher* library. It therefore lacks several features normally expected in a map rendered.
+while *demviewer* is a demo application using said library. Note that this application simply demostrates the usage of the *mapfetcher* library. It therefore lacks several features normally expected in a map renderer.
 
 The project depends on Qt5.
 
