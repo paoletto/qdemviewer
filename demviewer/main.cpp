@@ -347,7 +347,8 @@ struct Tile
               const int tessellationDirection,
               const QVector3D &lightDirection,
               bool interactive,
-              const bool joinTiles) const
+              bool joinTiles,
+              int downsamplingRate) const
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         if (!m_shader) {
@@ -396,7 +397,7 @@ struct Tile
         }
         shader->bind();
 
-        int stride = (interactive) ? 8 : 1;
+        int stride = (interactive) ? downsamplingRate : 1;
 
         auto resolution = m_resolution;
         if (joinTiles && interactive)
@@ -426,7 +427,7 @@ struct Tile
 
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
         const int numVertices = totVertices(joinTiles, stride);
-        qDebug() << "numv "<<numVertices;
+
         f->glDrawArrays(GL_TRIANGLES, 0, numVertices);
         shader->release();
         if (mapTexture())
@@ -620,7 +621,8 @@ protected:
                    m_tessellationDirection,
                    m_lightDirection,
                    fast,
-                   m_joinTiles);
+                   m_joinTiles,
+                   m_downsamplingRate);
         }
 
         f45->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
@@ -649,6 +651,7 @@ protected:
     bool m_interactive{false};
     bool m_fastInteraction{false};
     bool m_autoRefinement{false};
+    int m_downsamplingRate{8};
     std::map<TileKey, std::shared_ptr<Tile>> m_tiles {};
     // TODO use a state struct
 };
@@ -670,6 +673,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(bool offline READ offline WRITE setOffline NOTIFY offlineChanged)
     Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
+    Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
 
 public:
     TerrainViewer(QQuickItem *parent = nullptr) {
@@ -828,6 +832,7 @@ public:
         if (m_fastInteraction == enabled)
             return;
         m_fastInteraction = enabled;
+        interactiveUpdate();
         emit fastInteractionChanged();
     }
 
@@ -844,6 +849,16 @@ public:
         emit autoRefinementChanged();
     }
 
+    int downsamplingRate() const {
+        return m_downsamplingRate;
+    }
+
+    void setDownsamplingRate(int rate) {
+        if (rate == m_downsamplingRate)
+            return;
+        m_downsamplingRate = rate;
+        interactiveUpdate();
+    }
 
 signals:
     void numTrianglesChanged();
@@ -944,6 +959,7 @@ private:
     bool m_interactive{false};
     bool m_fastInteraction{false};
     bool m_autoRefinement{false};
+    int m_downsamplingRate{8};
     QPointF m_lightDirection;
     QTimer m_updateTimer;
     QTimer m_provisioningUpdateTimer;
@@ -980,6 +996,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
         m_interactive = viewer->m_interactive;
         m_fastInteraction = viewer->m_fastInteraction;
         m_autoRefinement = viewer->m_autoRefinement;
+        m_downsamplingRate = viewer->m_downsamplingRate;
 
         std::map<TileKey, std::shared_ptr<Heightmap>> newTiles;
         newTiles.swap(viewer->m_newTiles);

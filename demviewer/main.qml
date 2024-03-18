@@ -214,6 +214,34 @@ QC2.ApplicationWindow {
                 spacing: 4
                 width: parent.width
                 Text {
+                    text: "Decimation"
+                    color: "white"
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.leftMargin: 2
+                }
+
+                QC2.Slider {
+                    id: decimationSlider
+                    from: 1
+                    to: 6
+                    stepSize: 1
+                    value: 4
+                    snapMode: Slider.SnapAlways
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    property int rate: Math.trunc(Math.pow(2, decimationSlider.value - 1))
+
+                    QC2.ToolTip {
+                        parent: decimationSlider.handle
+                        visible: decimationSlider.pressed
+                        text: decimationSlider.rate
+                    }
+                }
+            }
+            RowLayout {
+                spacing: 4
+                width: parent.width
+                Text {
                     text: "Bri"
                     color: "white"
                     Layout.alignment: Qt.AlignVCenter
@@ -400,27 +428,32 @@ QC2.ApplicationWindow {
                         onReleased: {
                             parent.gesture.enabled = true
                             // trigger Map Data fetching
+                            var res;
                             if (tileMode.checked) {
-                                utilities.requestSlippyTiles(parent.selectionTL,
+                                res = utilities.requestSlippyTiles(parent.selectionTL,
                                                              parent.selectionBR,
                                                              zlslider.value,
                                                              zlslider.value)
+                                console.log("Request ",res,"issued")
                                 if (rasterEnabled.checked) {
-                                    mapFetcher.requestSlippyTiles(parent.selectionTL,
+                                    res = mapFetcher.requestSlippyTiles(parent.selectionTL,
                                                                   parent.selectionBR,
                                                                   zlMapSlider.value,
                                                                   zlslider.value)
+                                    console.log("Request ",res,"issued")
                                 }
                             } else {
-                                utilities.requestCoverage(parent.selectionTL,
+                                res = utilities.requestCoverage(parent.selectionTL,
                                                                  parent.selectionBR,
                                                                  zlslider.value,
                                                                  /*clip*/ clipInCoverage.checked)
+                                console.log("Request ",res,"issued")
                                 if (rasterEnabled.checked) {
-                                    mapFetcher.requestCoverage(parent.selectionTL,
+                                    res = mapFetcher.requestCoverage(parent.selectionTL,
                                                                parent.selectionBR,
                                                                zlslider.value,
                                                                /*clip*/ clipInCoverage.checked)
+                                    console.log("Request ",res,"issued")
                                 }
                             }
                         }
@@ -506,6 +539,7 @@ QC2.ApplicationWindow {
                     offline: offline.checked
                     fastInteraction: fastInteractionMenuItem.checked
                     autoRefinement: autoRefinementMenuItem.checked
+                    downsamplingRate: decimationSlider.rate
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation
@@ -587,30 +621,6 @@ QC2.ApplicationWindow {
         height: 180
         padding: 16
         anchors.centerIn: parent
-
-        function addVideo(u) {
-            if (!utilities.isYoutubeVideoUrl(u)) {
-                // Q_UNREACHABLE
-                console.log("Wrong URL fed!")
-                return;
-            }
-            if (utilities.isYoutubeShortsUrl(u)) {
-                fileSystemModel.addEntry(utilities.getVideoID(u),
-                                         "", // title
-                                         "", // channel URL
-                                         "", // channel Avatar url
-                                         ""  // channel name
-                                         )
-            } else {
-                fileSystemModel.addEntry(utilities.getVideoID(u),
-                                         "", // title
-                                         "", // channel URL
-                                         "", // channel Avatar url
-                                         "", // channel name
-                                         1,
-                                         0) // ToDo: make it update
-            }
-        }
 
         onAccepted: {
             var name = newProviderName.text
