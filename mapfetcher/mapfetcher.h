@@ -149,6 +149,7 @@ signals:
     void tileReady(quint64 id, const TileKey k);
     void coverageReady(quint64 id);
     void urlTemplateChanged();
+    void requestHandlingFinished(quint64 id);
 
 protected slots:
     void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);

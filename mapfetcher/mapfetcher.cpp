@@ -825,9 +825,8 @@ QString MapFetcherPrivate::objectName() const
 }
 
 TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
-                                   MapFetcherWorker &mapFetcher,
-                                   bool last)
-    : m_reply(reply), m_mapFetcher(&mapFetcher), m_last(last)
+                                   MapFetcherWorker &mapFetcher)
+    : m_reply(reply), m_mapFetcher(&mapFetcher)
 {
     reply->setParent(this);
     connect(this,
@@ -1355,7 +1354,7 @@ void NetworkIOManager::requestCoverage(DEMFetcher *f, quint64 requestId, const Q
 }
 
 // Currently used only for DEM
-void DEMFetcherWorker::onInsertTile(const quint64 id, const TileKey k,  std::shared_ptr<QImage> i)
+void DEMFetcherWorker::onTileReady(const quint64 id, const TileKey k,  std::shared_ptr<QImage> i)
 {
     Q_D(DEMFetcherWorker);
     d->m_tileCache[id].emplace(k, std::move(i)); // f->onInsertTile also emits
@@ -1444,8 +1443,11 @@ void DEMFetcherWorker::onCoverageReady(quint64 id,  std::shared_ptr<QImage> i)
 
 void DEMFetcherWorker::onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h)
 {
-//    qDebug() << "DEMFetcherWorker::onInsertHeightmap!";
+    Q_D(DEMFetcherWorker);
     emit heightmapReady(id, k, std::move(h));
+    if (!--d->m_request2remainingDEMHandlers[id]) {
+        emit requestHandlingFinished(id);
+    }
 }
 
 void DEMFetcherWorker::onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h)
@@ -1502,6 +1504,11 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
             ? urlTemplateTerrariumS3
             : d->m_urlTemplate;
     d->m_request2remainingTiles.emplace(requestId, tiles.size());
+    d->m_request2remainingHandlers.emplace(requestId, tiles.size());
+    auto *df = qobject_cast<DEMFetcherWorker *>(this);
+    if (df) {
+        df->d_func()->m_request2remainingDEMHandlers.emplace(requestId, tiles.size()); // TODO: deduplicate? m_request2remainingHandlers might be enough
+    }
 
     requestMapTiles(tiles,
                     urlTemplate,
@@ -1566,13 +1573,22 @@ void MapFetcherWorker::onTileReplyFinished() {
     }
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
+        d->m_request2remainingHandlers[id]--;
+        auto *df = qobject_cast<DEMFetcherWorker *>(this);
+        if (df) {
+            if (!--df->d_func()->m_request2remainingDEMHandlers[id]) {// TODO: deduplicate? m_request2remainingHandlers might be enough
+                emit requestHandlingFinished(id);
+            }
+        } else {
+            if (!d->m_request2remainingHandlers[id]) {
+                emit requestHandlingFinished(id);
+            }
+        }
         return; // Already handled in networkReplyError
     }
 
-    const bool last = !d->m_request2remainingTiles[id];
     auto *handler = new TileReplyHandler(reply,
-                                         *this,
-                                         last);
+                                         *this);
     d->m_worker->schedule(handler);
 }
 
@@ -1593,13 +1609,16 @@ void MapFetcherWorker::onTileReplyForCoverageFinished() {
     }
 
     auto *handler = new TileReplyHandler(reply,
-                                         *this,
-                                         false);
+                                         *this);
     d->m_worker->schedule(handler);
 }
 
 void MapFetcherWorker::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
+    Q_D(MapFetcherWorker);
     emit tileReady(id, k, i);
+    if (!--d->m_request2remainingHandlers[id] && !qobject_cast<DEMFetcherWorker *>(this)) {
+        emit requestHandlingFinished(id);
+    }
 }
 
 void MapFetcherWorker::onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i) {
@@ -1638,7 +1657,7 @@ DEMFetcherWorker::DEMFetcherWorker(QObject *parent, DEMFetcher *f, QSharedPointe
 }
 
 void DEMFetcherWorker::init() {
-    connect(this, &MapFetcherWorker::tileReady, this, &DEMFetcherWorker::onInsertTile);
+    connect(this, &MapFetcherWorker::tileReady, this, &DEMFetcherWorker::onTileReady);
     connect(this, &MapFetcherWorker::coverageReady, this, &DEMFetcherWorker::onCoverageReady);
 }
 

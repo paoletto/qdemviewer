@@ -202,6 +202,7 @@ public:
 signals:
     void tileReady(quint64 id, const TileKey k, std::shared_ptr<QImage>);
     void coverageReady(quint64 id, std::shared_ptr<QImage>);
+    void requestHandlingFinished(quint64 id);
 
 protected slots:
     void onTileReplyFinished();
@@ -248,6 +249,7 @@ public:
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
     MapFetcher *m_fetcher{nullptr};
     std::unordered_map<quint64, quint64> m_request2remainingTiles;
+    std::unordered_map<quint64, quint64> m_request2remainingHandlers;
     const QImage m_empty;
 };
 
@@ -268,7 +270,7 @@ signals:
     void heightmapCoverageReady(quint64 id, std::shared_ptr<Heightmap>);
 
 protected slots:
-    void onInsertTile(quint64 id, const TileKey k,  std::shared_ptr<QImage> i);
+    void onTileReady(quint64 id, const TileKey k,  std::shared_ptr<QImage> i);
     void onCoverageReady(quint64 id,  std::shared_ptr<QImage> i);
     void onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h);
     void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
@@ -280,6 +282,7 @@ private:
     Q_DISABLE_COPY(DEMFetcherWorker)
 friend class DEMReadyHandler;
 friend class NetworkIOManager;
+friend class MapFetcherWorker;
 };
 class DEMFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
 {
@@ -293,6 +296,7 @@ public:
     std::map<quint64, TileNeighborsMap> m_request2Neighbors;
     std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
+    std::unordered_map<quint64, quint64> m_request2remainingDEMHandlers;
     bool m_borders{false};
 };
 
@@ -353,6 +357,10 @@ protected:
                     SIGNAL(coverageReady(quint64,std::shared_ptr<QImage>)),
                     f,
                     SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
+            connect(w,
+                    SIGNAL(requestHandlingFinished(quint64)),
+                    f,
+                    SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
         } else {
             w = it->second;
         }
@@ -374,6 +382,10 @@ protected:
                     SIGNAL(heightmapCoverageReady(quint64,std::shared_ptr<Heightmap>)),
                     f,
                     SLOT(onInsertHeightmapCoverage(quint64,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+            connect(w,
+                    SIGNAL(requestHandlingFinished(quint64)),
+                    f,
+                    SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
         } else {
             w = it->second;
         }
@@ -488,8 +500,7 @@ class TileReplyHandler : public ThreadedJob
     Q_OBJECT
 public:
     TileReplyHandler(QNetworkReply *reply,
-                     MapFetcherWorker &mapFetcher,
-                     bool last = false);
+                     MapFetcherWorker &mapFetcher);
     ~TileReplyHandler() override;;
 
 signals:
@@ -507,7 +518,6 @@ private:
 
     QNetworkReply *m_reply{nullptr};
     MapFetcherWorker *m_mapFetcher{nullptr};
-    bool m_last{false};
 };
 
 class DEMReadyHandler : public ThreadedJob

@@ -74,7 +74,6 @@ static constexpr char vertexShaderTile[] = R"(
 layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
 uniform highp mat4 matrix;
 uniform vec2 resolution;
-uniform vec2 lowRes;
 
 uniform float elevationScale;
 uniform int quadSplitDirection;
@@ -126,7 +125,94 @@ void main()
 
     const int triangleID = (gl_VertexID / 3) % 2;
     const int vertexID = (gl_VertexID % 6) + splitDirectionOffset;
-    vec4 vertex = neighbor(gl_VertexID % 6 + splitDirectionOffset, x,y);
+    vec4 vertex = neighbor(vertexID, x,y);
+    vec4 triVertex0 = neighbor(0 + 3 * triangleID + splitDirectionOffset, x,y);
+    vec4 triVertex1 = neighbor(1 + 3 * triangleID + splitDirectionOffset, x,y);
+    vec4 triVertex2 = neighbor(2 + 3 * triangleID + splitDirectionOffset, x,y);
+
+    const vec3 first = triVertex2.xyz - triVertex0.xyz;
+    const vec3 second = triVertex1.xyz - triVertex0.xyz;
+    normal = normalize(cross(first, second));
+
+//    texCoord = clamp(vec2(x + cOff, y + cOff) * texCoordScaling, vec2(0,0), vec2(1,1));
+    texCoord = vertex.xy;
+    gl_Position = matrix * vertex;
+}
+)";
+static constexpr char vertexShaderTileJoinedDownsampled[] = R"(
+#version 450 core
+#define IMGFMT r32f
+layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
+uniform highp mat4 matrix;
+
+uniform vec2 resolution;
+
+uniform float elevationScale;
+uniform int quadSplitDirection;
+//uniform float cOff; // coordinate offset, -0.5 || 0.5
+uniform int samplingStride;
+
+
+flat out int subQuadID;
+flat out vec3 normal;
+smooth out vec2 texCoord;
+const int indices[12] = {2,1,0,0,3,2, 3,1,0,3,2,1}; // TODO: choose quad splitting orientation based on light direction?
+const vec4 vertices[4] = {
+     vec4(0,0,0,1)
+    ,vec4(0,1,0,1)
+    ,vec4(1,1,0,1)
+    ,vec4(1,0,0,1)
+};
+
+int joined = 1;
+vec2 heightmapResolution = resolution * samplingStride + vec2(2,2);
+float cOff = -0.5; // joined tiles have 0 at 0, 1 at 0.5
+
+
+//int sjoined = int(1.0 - cOff - 0.5); // 1 only when joined && !interactive
+//int ijoined = joined * int(!bool(sjoined));
+
+int splitDirectionOffset = quadSplitDirection * 6;
+int numPatchesX = (int(resolution.x) + 1);
+float gridSpacing = 1.0 / float(heightmapResolution.x - 2); // * sjoined); // because first and last are half-spaced in joined mode
+vec4 gridScaling = vec4(gridSpacing,
+                        gridSpacing,
+                        1.0, 1.0);
+
+vec4 neighbor(int id, int x, int y) {
+    vec4 res = vertices[indices[id]];
+
+    const int iiY = clamp((y + int(res.y)) * samplingStride - samplingStride + 1
+                   , 0
+                   , int(heightmapResolution.y) - 1);
+    const int iY = //clamp(
+                    int(heightmapResolution.y) - 1 - iiY;
+//                   , 0
+//                   , int(heightmapResolution.y) - 1);
+
+    const int iX = clamp((x + int(res.x)) * samplingStride - samplingStride + 1
+                     , 0
+                     , int(heightmapResolution.x) - 1);
+
+    const float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) / elevationScale;
+    res = vec4(float(iX) + cOff,
+               float(iiY) + cOff,
+               elevation,
+               1) * gridScaling;
+    res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
+    return res;
+}
+
+void main()
+{
+    subQuadID = int(gl_VertexID / 6);
+    const int x = subQuadID % numPatchesX;
+    const int y = subQuadID / numPatchesX;
+
+
+    const int triangleID = (gl_VertexID / 3) % 2;
+    const int vertexID = (gl_VertexID % 6) + splitDirectionOffset;
+    vec4 vertex = neighbor(vertexID, x,y);
     vec4 triVertex0 = neighbor(0 + 3 * triangleID + splitDirectionOffset, x,y);
     vec4 triVertex1 = neighbor(1 + 3 * triangleID + splitDirectionOffset, x,y);
     vec4 triVertex2 = neighbor(2 + 3 * triangleID + splitDirectionOffset, x,y);
