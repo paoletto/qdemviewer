@@ -15,6 +15,8 @@ QT += location-private #for QGeoCameraTiles/Private
 CONFIG += c++14
 QMAKE_CXXFLAGS += "-fno-sized-deallocation"
 
+INCLUDEPATH += $$PWD/astc-encoder
+
 #Input
 HEADERS += mapfetcher.h mapfetcher_p.h \
     networksqlitecache_p.h

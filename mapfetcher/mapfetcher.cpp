@@ -108,6 +108,7 @@ struct TileKeyRegistrar
         qRegisterMetaType<TileKey>("TileKey");
         qRegisterMetaType<std::shared_ptr<QImage>>("QImageShared");
         qRegisterMetaType<std::shared_ptr<Heightmap>>("HeightmapShared");
+        qRegisterMetaType<std::shared_ptr<CompressedTextureData>>("CompressedTextureDataShared");
     }
 };
 
@@ -1228,8 +1229,6 @@ DEMReadyHandler::DEMReadyHandler(std::shared_ptr<QImage> demImage,
     connect(this, &DEMReadyHandler::insertHeightmap, this, &ThreadedJob::finished);
 }
 
-DEMReadyHandler::~DEMReadyHandler() {}
-
 void DEMReadyHandler::process()
 {    
     if (!m_demImage) {
@@ -1239,7 +1238,6 @@ void DEMReadyHandler::process()
     std::shared_ptr<Heightmap> h =
             std::make_shared<Heightmap>(Heightmap::fromImage(*m_demImage, m_neighbors));
 
-//    qDebug() << "DEMReadyHandler completed "<<m_key;
     if (m_coverage)
         emit insertHeightmapCoverage(m_requestId, h);
     else
@@ -1315,6 +1313,37 @@ void NetworkIOManager::requestCoverage(DEMFetcher *f, quint64 requestId, const Q
         return;
     }
     DEMFetcherWorker *w = getDEMFetcherWorker(f);
+    w->setURLTemplate(f->urlTemplate()); // it might change in between requests
+    w->requestCoverage(requestId, ctl, cbr, zoom, clip);
+}
+
+void NetworkIOManager::requestSlippyTiles(ASTCFetcher *f,
+                                          quint64 requestId,
+                                          const QGeoCoordinate &ctl,
+                                          const QGeoCoordinate &cbr,
+                                          const quint8 zoom)
+{
+    if (!ctl.isValid() || !cbr.isValid()) { // TODO: verify cbr is actually br of ctl
+        qWarning() << "requestSlippyTiles: Invalid bounds";
+        return;
+    }
+    ASTCFetcherWorker *w = getASTCFetcherWorker(f);
+    w->setURLTemplate(f->urlTemplate()); // it might change in between requests
+    w->requestSlippyTiles(requestId, ctl, cbr, zoom, zoom);
+}
+
+void NetworkIOManager::requestCoverage(ASTCFetcher *f,
+                                       quint64 requestId,
+                                       const QGeoCoordinate &ctl,
+                                       const QGeoCoordinate &cbr,
+                                       const quint8 zoom,
+                                       const bool clip)
+{
+    if (!ctl.isValid() || !cbr.isValid()) { // TODO: verify cbr is actually br of ctl
+        qWarning() << "requestSlippyTiles: Invalid bounds";
+        return;
+    }
+    ASTCFetcherWorker *w = getASTCFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
     w->requestCoverage(requestId, ctl, cbr, zoom, clip);
 }
@@ -1427,6 +1456,7 @@ void DEMFetcherWorker::onInsertHeightmap(quint64 id, const TileKey k, std::share
 void DEMFetcherWorker::onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h)
 {
     emit heightmapCoverageReady(id, std::move(h));
+    emit requestHandlingFinished(id);
 }
 
 MapFetcherWorker::MapFetcherWorker(QObject *parent, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker)
@@ -1479,10 +1509,16 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
             : d->m_urlTemplate;
     d->m_request2remainingTiles.emplace(requestId, tiles.size());
     d->m_request2remainingHandlers.emplace(requestId, tiles.size());
+    // TODO: replace with polymorphism
     auto *df = qobject_cast<DEMFetcherWorker *>(this);
     if (df) {
         df->d_func()->m_request2remainingDEMHandlers.emplace(requestId, tiles.size()); // TODO: deduplicate? m_request2remainingHandlers might be enough
     }
+//    auto *af = qobject_cast<ASTCFetcherWorker *>(this);
+//    if (af) {
+//        af->d_func()->m_request2remainingASTCHandlers.emplace(requestId, tiles.size()); // TODO: deduplicate? m_request2remainingHandlers might be enough
+//    }
+
 
     requestMapTiles(tiles,
                     urlTemplate,
@@ -1663,4 +1699,180 @@ bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJob *l, const Thr
     const DEMReadyHandler *lDEM = qobject_cast<const DEMReadyHandler *>(l);
     const DEMReadyHandler *rDEM = qobject_cast<const DEMReadyHandler *>(r);
     return (rDEM && lDEM && rDEM->tileKey() < lDEM->tileKey()) || (rDEM && !lDEM);
+}
+
+std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, const TileKey k)
+{
+    const auto it = m_tileCacheASTC[id].find(k);
+    if (it != m_tileCacheASTC[id].end()) {
+        std::shared_ptr<CompressedTextureData> res = std::move(it->second);
+        m_tileCacheASTC[id].erase(it);
+        return res;
+    }
+    return nullptr;
+}
+
+quint64 ASTCFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8)
+{
+    Q_Q(ASTCFetcher);
+    return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom);
+}
+
+quint64 ASTCFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
+{
+    Q_Q(ASTCFetcher);
+    return NetworkManager::instance().requestCoverage(*q, ctl, cbr, zoom, clip);
+}
+
+
+ASTCFetcherWorker::ASTCFetcherWorker(QObject *parent,
+                                     ASTCFetcher *f,
+                                     QSharedPointer<ThreadedJobQueue> worker)
+:   MapFetcherWorker(*new DEMFetcherWorkerPrivate, f, worker, parent)
+{
+    init();
+}
+
+void ASTCFetcherWorker::init()
+{
+    connect(this, &MapFetcherWorker::tileReady, this, &ASTCFetcherWorker::onTileReady);
+    connect(this, &MapFetcherWorker::coverageReady, this, &ASTCFetcherWorker::onCoverageReady);
+}
+
+void ASTCFetcherWorker::onTileReady(quint64 id,
+                                    const TileKey k,
+                                    std::shared_ptr<QImage> i)
+{
+    Q_D(ASTCFetcherWorker);
+    auto h = new Raster2ASTCHandler(i,
+                                 k,
+                                 *this,
+                                 id,
+                                 false);
+    d->m_worker->schedule(h);
+}
+
+void ASTCFetcherWorker::onCoverageReady(quint64 id,
+                                        std::shared_ptr<QImage> i)
+{
+    Q_D(ASTCFetcherWorker);
+    auto h = new Raster2ASTCHandler(i,
+                                 {0,0,0},
+                                 *this,
+                                 id,
+                                 true);
+    d->m_worker->schedule(h);
+}
+
+void ASTCFetcherWorker::onInsertTileASTC(quint64 id,
+                                         const TileKey k,
+                                         std::shared_ptr<CompressedTextureData> h)
+{
+    Q_D(ASTCFetcherWorker);
+    emit tileASTCReady(id, k, std::move(h));
+    if (!--d->m_request2remainingHandlers[id]) {
+        emit requestHandlingFinished(id);
+    }
+}
+
+void ASTCFetcherWorker::onInsertCoverageASTC(quint64 id,
+                                             std::shared_ptr<CompressedTextureData> h)
+{
+    emit coverageASTCReady(id, std::move(h));
+    emit requestHandlingFinished(id);
+}
+
+Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> tileImage,
+                                       const TileKey k,
+                                       ASTCFetcherWorker &fetcher,
+                                       quint64 id,
+                                       bool coverage)
+    : m_fetcher(&fetcher)
+    , m_rasterImage(std::move(tileImage))
+    , m_requestId(id)
+    , m_coverage(coverage)
+    , m_key(k)
+{
+    connect(this, &Raster2ASTCHandler::insertTileASTC, m_fetcher, &ASTCFetcherWorker::onInsertTileASTC, Qt::QueuedConnection);
+    connect(this, &Raster2ASTCHandler::insertCoverageASTC, m_fetcher, &ASTCFetcherWorker::onInsertCoverageASTC, Qt::QueuedConnection);
+    connect(this, &Raster2ASTCHandler::insertCoverageASTC, this, &ThreadedJob::finished);
+    connect(this, &Raster2ASTCHandler::insertTileASTC, this, &ThreadedJob::finished);
+}
+
+void Raster2ASTCHandler::process()
+{
+    if (!m_rasterImage) {
+        qWarning() << "NULL image in Compressed Texture Generation!";
+        return;
+    }
+    std::shared_ptr<CompressedTextureData> t =
+            std::static_pointer_cast<CompressedTextureData>(
+                ASTCCompressedTextureData::fromImage(m_rasterImage));
+
+    if (m_coverage)
+        emit insertCoverageASTC(m_requestId, t);
+    else
+        emit insertTileASTC(m_requestId, m_key, t);
+}
+
+ASTCFetcher::ASTCFetcher(QObject *parent)
+:   MapFetcher(*new ASTCFetcherPrivate, parent) {}
+
+
+std::shared_ptr<CompressedTextureData> ASTCFetcher::tile(quint64 id, const TileKey k)
+{
+    Q_D(ASTCFetcher);
+    return d->tileASTC(id, k);
+}
+
+std::shared_ptr<CompressedTextureData> ASTCFetcher::tileCoverage(quint64 id)
+{
+    Q_D(ASTCFetcher);
+    auto it = d->m_coveragesASTC.find(id);
+    if (it == d->m_coveragesASTC.end())
+        return {};
+    auto res = std::move(it->second);
+    d->m_coveragesASTC.erase(it);
+    return res;
+}
+
+void ASTCFetcher::onInsertASTCTile(const quint64 id,
+                                   const TileKey k,
+                                   std::shared_ptr<CompressedTextureData> i)
+{
+    Q_D(ASTCFetcher);
+    d->m_tileCacheASTC[id].emplace(k, std::move(i));
+    emit tileReady(id, k);
+}
+
+void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
+                                       std::shared_ptr<CompressedTextureData> i)
+{
+    Q_D(ASTCFetcher);
+    d->m_coveragesASTC.emplace(id, std::move(i));
+    emit coverageReady(id);
+}
+
+void ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
+{
+    if (!m_image)
+        return;
+    t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+    t->setMaximumAnisotropy(16);
+    t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                               QOpenGLTexture::Linear);
+    t->setWrapMode(QOpenGLTexture::ClampToEdge);
+    t->setData(*m_image);
+}
+
+QSize ASTCCompressedTextureData::size() const
+{
+    return QSize();
+}
+
+std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage(const std::shared_ptr<QImage> &i)
+{
+    std::shared_ptr<ASTCCompressedTextureData> res = std::make_shared<ASTCCompressedTextureData>();
+    res->m_image = std::make_shared<QImage>(i->mirrored(false, true));
+    return res;
 }

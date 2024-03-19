@@ -26,6 +26,7 @@
 #include <QNetworkAccessManager>
 #include <QNetworkDiskCache>
 #include <QNetworkReply>
+#include <QOpenGLTexture>
 #include <QMutex>
 #include <QThread>
 #include <QDebug>
@@ -104,6 +105,27 @@ struct Heightmap {
     bool m_hasBorders{false};
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(Heightmap::Neighbors)
+
+struct CompressedTextureData {
+    CompressedTextureData() = default;
+    virtual ~CompressedTextureData() = default;
+
+    virtual void upload(QSharedPointer<QOpenGLTexture> &) = 0;
+    virtual QSize size() const = 0;
+};
+
+struct ASTCCompressedTextureData : public CompressedTextureData{
+    ASTCCompressedTextureData() = default;
+    ~ASTCCompressedTextureData() override = default;
+
+    void upload(QSharedPointer<QOpenGLTexture> &t) override;
+    QSize size() const override;
+
+    static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i);
+
+    std::shared_ptr<QImage> m_image;
+};
+
 
 class MapFetcherPrivate;
 class MapFetcher : public QObject {
@@ -196,8 +218,37 @@ friend class DEMReadyHandler;
 friend class NetworkIOManager;
 };
 
+class ASTCFetcherPrivate;
+class ASTCFetcher : public MapFetcher {
+    Q_DECLARE_PRIVATE(ASTCFetcher)
+    Q_OBJECT
+
+public:
+    ASTCFetcher(QObject *parent);
+    ~ASTCFetcher() override = default;
+
+    std::shared_ptr<CompressedTextureData> tile(quint64 id, const TileKey k);
+    std::shared_ptr<CompressedTextureData> tileCoverage(quint64 id);
+
+protected slots:
+    void onInsertASTCTile(const quint64 id,
+                          const TileKey k,
+                          std::shared_ptr<CompressedTextureData> i);
+    void onInsertASTCCoverage(const quint64 id,
+                              std::shared_ptr<CompressedTextureData> i);
+
+protected:
+    ASTCFetcher(ASTCFetcherPrivate &dd, QObject *parent = nullptr);
+
+private:
+    Q_DISABLE_COPY(ASTCFetcher)
+friend class Raster2ASTCHandler;
+friend class NetworkIOManager;
+};
+
 Q_DECLARE_METATYPE(TileKey)
 Q_DECLARE_METATYPE(std::shared_ptr<QImage>)
+Q_DECLARE_METATYPE(std::shared_ptr<CompressedTextureData>)
 Q_DECLARE_METATYPE(std::shared_ptr<Heightmap>)
 
 #endif

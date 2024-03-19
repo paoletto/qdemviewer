@@ -269,8 +269,8 @@ struct Tile
         m_resolution = m_dem.size();
     }
 
-    void setMap(std::shared_ptr<QImage> map) const {
-        m_map = map->mirrored(false, true);
+    void setMap(std::shared_ptr<CompressedTextureData> map) const {
+        m_map = map;
     }
 
     void setNeighbors(std::shared_ptr<Tile> demBottom = {},
@@ -326,16 +326,9 @@ struct Tile
 
     QSharedPointer<QOpenGLTexture> mapTexture() const
     {
-        if (!m_map.isNull()) {
-            {
-                m_texMap.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-                m_texMap->setMaximumAnisotropy(16);
-                m_texMap->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                                           QOpenGLTexture::Linear);
-                m_texMap->setWrapMode(QOpenGLTexture::ClampToEdge);
-            }
-            m_texMap->setData(m_map);
-            m_map = QImage();
+        if (m_map) {
+            m_map->upload(m_texMap);
+            m_map.reset();
         }
         return m_texMap;
     }
@@ -461,9 +454,9 @@ struct Tile
     quint64 allocatedGraphicsMemoryBytes() const {
         quint64 res = 0;
         if (m_texDem)
-            res += m_texDem->width() * m_texDem->height() * 4;
+            res += m_texDem->width() * m_texDem->height() * 4; // rgba8
         if (m_texMap)
-            res += (m_texMap->width() * m_texDem->height() * 4) * 1.3333; //mipmapped
+            res += (m_texMap->width() * m_texMap->height() * sizeof(GLfloat)) * 1.3333; //mipmapped
         return res;
     }
 
@@ -476,7 +469,7 @@ struct Tile
     mutable Heightmap m_dem;
     mutable QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
-    mutable QImage m_map;
+    mutable std::shared_ptr<CompressedTextureData> m_map;
     mutable QSharedPointer<QOpenGLTexture> m_texMap;
 
     mutable std::shared_ptr<Tile> m_right;
@@ -526,7 +519,7 @@ public:
     }
 
     void updateTileRaster(const TileKey k,
-                          std::shared_ptr<QImage> raster) {
+                          std::shared_ptr<CompressedTextureData> raster) {
 
         auto t = m_tiles.find(k);
         if (t == m_tiles.end())
@@ -730,7 +723,7 @@ public:
     void setRasterFetcher(QVariant value) {
         if (m_rasterFetcher)
             return;
-        m_rasterFetcher = qobject_cast<MapFetcher *>(qvariant_cast<QObject *>(value));
+        m_rasterFetcher = qobject_cast<ASTCFetcher *>(qvariant_cast<QObject *>(value));
         if (m_rasterFetcher) {
             QObject::connect(m_rasterFetcher, &MapFetcher::tileReady,
                              this, &TerrainViewer::onMapTileReady);
@@ -947,7 +940,7 @@ protected slots:
 private:
     ArcBall *m_arcball{nullptr};
     DEMFetcher *m_utilities{nullptr};
-    MapFetcher *m_rasterFetcher{nullptr};
+    ASTCFetcher *m_rasterFetcher{nullptr};
     bool m_recreateRenderer = false;
     bool m_reset = false;
     qreal m_elevationScale{500.0};
@@ -965,7 +958,7 @@ private:
     QTimer m_provisioningUpdateTimer;
 
     std::map<TileKey, std::shared_ptr<Heightmap>> m_newTiles;
-    std::map<TileKey, std::shared_ptr<QImage>> m_newMapRasters;
+    std::map<TileKey, std::shared_ptr<CompressedTextureData>> m_newMapRasters;
 
     friend class TileRenderer;
     Q_DISABLE_COPY(TerrainViewer)
@@ -1018,7 +1011,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
 
         for (const auto &k: keys) {
             if (hasTile(k)) {
-                std::shared_ptr<QImage> raster = std::move(viewer->m_newMapRasters[k]);
+                std::shared_ptr<CompressedTextureData> raster = std::move(viewer->m_newMapRasters[k]);
                 viewer->m_newMapRasters.erase(k);
                 updateTileRaster(k, std::move(raster));
             }
@@ -1069,7 +1062,7 @@ int main(int argc, char *argv[])
     utilities->setObjectName("DEM Fetcher");
     utilities->setURLTemplate(QLatin1String("https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"));
     ArcBall *arcball = new ArcBall(&engine);
-    MapFetcher *rasterFetcher = new MapFetcher(&engine);
+    ASTCFetcher *rasterFetcher = new ASTCFetcher(&engine);
     rasterFetcher->setObjectName("Raster Fetcher");
     rasterFetcher->setURLTemplate(QLatin1String("https://tile.openstreetmap.org/{z}/{x}/{y}.png"));
 //    rasterFetcher->setURLTemplate(QLatin1String("http://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}")); // hybrid
