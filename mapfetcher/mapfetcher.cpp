@@ -739,7 +739,7 @@ void ThreadedJobQueue::next() {
         connect(&m_thread, SIGNAL(started()), m_currentJob, SLOT(process()));
         m_thread.start();
     }
-//    QCoreApplication::processEvents(); // Somehow not helping
+    QCoreApplication::processEvents(); // Somehow not helping
 }
 
 MapFetcher::MapFetcher(QObject *parent)
@@ -810,8 +810,6 @@ TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
     connect(this, &ThreadedJob::error, this, &ThreadedJob::finished);
 }
 
-TileReplyHandler::~TileReplyHandler() {}
-
 ThreadedJob::ThreadedJob()
 {
     connect(this, &ThreadedJob::finished, this, &QObject::deleteLater);
@@ -828,6 +826,11 @@ void ThreadedJob::move2thread(QThread &t) {
     };
     moveChildren2Thread(this);
     connect(this, &ThreadedJob::finished, &t, &QThread::quit);
+}
+
+int ThreadedJob::priority() const
+{
+    return 10;
 }
 
 void TileReplyHandler::process()
@@ -1229,6 +1232,11 @@ DEMReadyHandler::DEMReadyHandler(std::shared_ptr<QImage> demImage,
     connect(this, &DEMReadyHandler::insertHeightmap, this, &ThreadedJob::finished);
 }
 
+int DEMReadyHandler::priority() const
+{
+    return 8;
+}
+
 void DEMReadyHandler::process()
 {    
     if (!m_demImage) {
@@ -1321,7 +1329,8 @@ void NetworkIOManager::requestSlippyTiles(ASTCFetcher *f,
                                           quint64 requestId,
                                           const QGeoCoordinate &ctl,
                                           const QGeoCoordinate &cbr,
-                                          const quint8 zoom)
+                                          const quint8 zoom,
+                                          quint8 destinationZoom)
 {
     if (!ctl.isValid() || !cbr.isValid()) { // TODO: verify cbr is actually br of ctl
         qWarning() << "requestSlippyTiles: Invalid bounds";
@@ -1329,7 +1338,7 @@ void NetworkIOManager::requestSlippyTiles(ASTCFetcher *f,
     }
     ASTCFetcherWorker *w = getASTCFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
-    w->requestSlippyTiles(requestId, ctl, cbr, zoom, zoom);
+    w->requestSlippyTiles(requestId, ctl, cbr, zoom, destinationZoom);
 }
 
 void NetworkIOManager::requestCoverage(ASTCFetcher *f,
@@ -1480,6 +1489,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
                           {quint64(t.ts.x()), quint64(t.ts.y()), destinationZoom},
                           t.nb);
     }
+    const quint64 srcTilesSize = tiles.size();
     if (destinationZoom != zoom) {
         // split tiles to request
         quint64 destSideLength = 1 << int(destinationZoom);
@@ -1512,13 +1522,12 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
     // TODO: replace with polymorphism
     auto *df = qobject_cast<DEMFetcherWorker *>(this);
     if (df) {
-        df->d_func()->m_request2remainingDEMHandlers.emplace(requestId, tiles.size()); // TODO: deduplicate? m_request2remainingHandlers might be enough
+        df->d_func()->m_request2remainingDEMHandlers.emplace(requestId, srcTilesSize); // TODO: deduplicate? m_request2remainingHandlers might be enough
     }
-//    auto *af = qobject_cast<ASTCFetcherWorker *>(this);
-//    if (af) {
-//        af->d_func()->m_request2remainingASTCHandlers.emplace(requestId, tiles.size()); // TODO: deduplicate? m_request2remainingHandlers might be enough
-//    }
-
+    auto *af = qobject_cast<ASTCFetcherWorker *>(this);
+    if (af) {
+        af->d_func()->m_request2remainingASTCHandlers.emplace(requestId, srcTilesSize); // TODO: deduplicate? m_request2remainingHandlers might be enough
+    }
 
     requestMapTiles(tiles,
                     urlTemplate,
@@ -1581,12 +1590,17 @@ void MapFetcherWorker::onTileReplyFinished() {
     } else {
         d->m_request2remainingTiles[id]--;
     }
+    auto *df = qobject_cast<DEMFetcherWorker *>(this);
+    auto *af = qobject_cast<ASTCFetcherWorker *>(this);
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
         d->m_request2remainingHandlers[id]--;
-        auto *df = qobject_cast<DEMFetcherWorker *>(this);
         if (df) {
             if (!--df->d_func()->m_request2remainingDEMHandlers[id]) {// TODO: deduplicate? m_request2remainingHandlers might be enough
+                emit requestHandlingFinished(id);
+            }
+        } else if (af) {
+            if (!--af->d_func()->m_request2remainingASTCHandlers[id]) {// TODO: deduplicate? m_request2remainingHandlers might be enough
                 emit requestHandlingFinished(id);
             }
         } else {
@@ -1597,8 +1611,8 @@ void MapFetcherWorker::onTileReplyFinished() {
         return; // Already handled in networkReplyError
     }
 
-    auto *handler = new TileReplyHandler(reply,
-                                         *this);
+    auto *handler = (df) ? new DEMTileReplyHandler(reply, *this)
+                         : new TileReplyHandler(reply, *this);
     d->m_worker->schedule(handler);
 }
 
@@ -1696,9 +1710,13 @@ QString MapFetcherWorkerPrivate::objectName() const {
 }
 
 bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJob *l, const ThreadedJob *r) const {
-    const DEMReadyHandler *lDEM = qobject_cast<const DEMReadyHandler *>(l);
-    const DEMReadyHandler *rDEM = qobject_cast<const DEMReadyHandler *>(r);
-    return (rDEM && lDEM && rDEM->tileKey() < lDEM->tileKey()) || (rDEM && !lDEM);
+    if (l && r)
+        return r->priority() < l->priority();
+    return false;
+
+//    const DEMReadyHandler *lDEM = qobject_cast<const DEMReadyHandler *>(l);
+//    const DEMReadyHandler *rDEM = qobject_cast<const DEMReadyHandler *>(r);
+//    return (rDEM && lDEM && rDEM->tileKey() < lDEM->tileKey()) || (rDEM && !lDEM);
 }
 
 std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, const TileKey k)
@@ -1712,10 +1730,10 @@ std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, 
     return nullptr;
 }
 
-quint64 ASTCFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8)
+quint64 ASTCFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8 destinationZoom)
 {
     Q_Q(ASTCFetcher);
-    return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom);
+    return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom, destinationZoom);
 }
 
 quint64 ASTCFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
@@ -1728,7 +1746,7 @@ quint64 ASTCFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGe
 ASTCFetcherWorker::ASTCFetcherWorker(QObject *parent,
                                      ASTCFetcher *f,
                                      QSharedPointer<ThreadedJobQueue> worker)
-:   MapFetcherWorker(*new DEMFetcherWorkerPrivate, f, worker, parent)
+:   MapFetcherWorker(*new ASTCFetcherWorkerPrivate, f, worker, parent)
 {
     init();
 }
@@ -1770,7 +1788,7 @@ void ASTCFetcherWorker::onInsertTileASTC(quint64 id,
 {
     Q_D(ASTCFetcherWorker);
     emit tileASTCReady(id, k, std::move(h));
-    if (!--d->m_request2remainingHandlers[id]) {
+    if (!--d->m_request2remainingASTCHandlers[id]) {
         emit requestHandlingFinished(id);
     }
 }
@@ -1797,6 +1815,11 @@ Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> tileImage,
     connect(this, &Raster2ASTCHandler::insertCoverageASTC, m_fetcher, &ASTCFetcherWorker::onInsertCoverageASTC, Qt::QueuedConnection);
     connect(this, &Raster2ASTCHandler::insertCoverageASTC, this, &ThreadedJob::finished);
     connect(this, &Raster2ASTCHandler::insertTileASTC, this, &ThreadedJob::finished);
+}
+
+int Raster2ASTCHandler::priority() const
+{
+    return 9;
 }
 
 void Raster2ASTCHandler::process()
@@ -1875,4 +1898,12 @@ std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage
     std::shared_ptr<ASTCCompressedTextureData> res = std::make_shared<ASTCCompressedTextureData>();
     res->m_image = std::make_shared<QImage>(i->mirrored(false, true));
     return res;
+}
+
+DEMTileReplyHandler::DEMTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)
+:   TileReplyHandler(reply, mapFetcher) {}
+
+int DEMTileReplyHandler::priority() const
+{
+    return 7;
 }

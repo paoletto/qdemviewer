@@ -144,6 +144,51 @@ public:
 
     Q_INVOKABLE void setSize(QSize winSize) {
         m_winSize = winSize;
+        if (m_winSize.isEmpty())
+            return;
+        QVector3D vecBottomLeft = QVector3D(-1.0f,-1.0f,0.0f);
+        QVector3D vecTopRight   = QVector3D(1.0f,1.0f,0.0f);
+
+        float fExtentX = vecTopRight.x() - vecBottomLeft.x();
+        float fExtentY = vecTopRight.y() - vecBottomLeft.y();
+
+        float fRatioCanvas = float(m_winSize.width()) / float(m_winSize.height());
+
+        float fMissingRatio = 1. / fRatioCanvas;
+        float fRescaleFactor = 1.0f;
+
+        if (fMissingRatio < 1.0f)
+            fRescaleFactor = 1.0f / fMissingRatio;
+
+        const float fFrustumWidth = fExtentX * fRescaleFactor;
+        const float fHorizontalSpacing = (fFrustumWidth - fExtentX) / 2.0f;
+
+        const float fFrustumHeight = fExtentY * fRescaleFactor * fMissingRatio;
+        const float fVerticalSpacing = (fFrustumHeight - fExtentY) / 2.0f;
+
+        float fHorizontalSign = 1.0f;
+        if (vecBottomLeft.x() > vecTopRight.x())
+            fHorizontalSign = -fHorizontalSign;
+
+        float fVerticalSign = 1.0f;
+        if (vecBottomLeft.x() > vecTopRight.x())
+            fVerticalSign = -fVerticalSign;
+
+
+        vecBottomLeft = QVector3D(	vecBottomLeft.x() - fHorizontalSign * fHorizontalSpacing
+                                  , vecBottomLeft.y() - fVerticalSign * fVerticalSpacing
+                                  , 0.0f);
+        vecTopRight   = QVector3D(	vecTopRight.x() + fHorizontalSign * fHorizontalSpacing
+                                  , vecTopRight.y() +  fVerticalSign * fVerticalSpacing
+                                  , 0.0f);
+
+        m_projection.setToIdentity();
+        m_projection.ortho(vecBottomLeft.x(),
+                           vecTopRight.x(),
+                           vecBottomLeft.y(),
+                           vecTopRight.y(),
+                           -2000,
+                           2000);
     }
 
     Q_INVOKABLE void pressed(QPoint m) {
@@ -294,7 +339,7 @@ struct Tile
         // texCoords
 
         // VAOs
-        QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
+        // QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao); // creates it when bound the first time
     }
 
@@ -328,7 +373,7 @@ struct Tile
     {
         if (m_map) {
             m_map->upload(m_texMap);
-            m_map.reset();
+            m_map = nullptr;
         }
         return m_texMap;
     }
@@ -353,6 +398,7 @@ struct Tile
             m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                               QByteArray(fragmentShaderTile));
             m_shader->link();
+            m_shader->setObjectName("shader");
 
             m_shaderTextured = new QOpenGLShaderProgram;
             m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
@@ -360,6 +406,7 @@ struct Tile
             m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                               QByteArray(fragmentShaderTileTextured));
             m_shaderTextured->link();
+            m_shaderTextured->setObjectName("shaderTextured");
 
             m_shaderJoinedDownsampledTextured = new QOpenGLShaderProgram;
             // Create shaders
@@ -368,6 +415,19 @@ struct Tile
             m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                               QByteArray(fragmentShaderTileTextured));
             m_shaderJoinedDownsampledTextured->link();
+            m_shaderJoinedDownsampledTextured->setObjectName("shaderJoinedDownsampledTextured");
+
+            m_texWhite.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+            m_texWhite->setMaximumAnisotropy(16);
+            m_texWhite->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                                         QOpenGLTexture::Linear);
+            m_texWhite->setWrapMode(QOpenGLTexture::ClampToEdge);
+            QImage white(2,2,QImage::Format_RGB888);
+            white.setPixelColor(0,0, QColorConstants::White);
+            white.setPixelColor(0,1, QColorConstants::White);
+            white.setPixelColor(1,0, QColorConstants::White);
+            white.setPixelColor(1,1, QColorConstants::White);
+            m_texWhite->setData(white);
         }
         if (!m_shader) {
             qWarning() << "Failed creating shader!";
@@ -376,17 +436,22 @@ struct Tile
         if (m_resolution.isEmpty())
             return; // skip drawing the tile
 
-        QOpenGLShaderProgram *shader = (mapTexture()) ? m_shaderTextured
-                                                      : m_shader;
+        auto rasterTxt = mapTexture();
+        QOpenGLShaderProgram *shader = (rasterTxt) ? m_shaderTextured
+                                                   : m_shader;
         if (interactive && joinTiles)
             shader = m_shaderJoinedDownsampledTextured;
+
+//        qDebug() << "Drawing "<< m_key << " with "<<shader->objectName();
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
         const auto tileMatrix = tileTransformation(origin);
         ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8); // TODO: test readonly
 
-        if (mapTexture())  {
-            mapTexture()->bind();
+        if (rasterTxt)  {
+            rasterTxt->bind();
+        } else {
+            m_texWhite->bind();
         }
         shader->bind();
 
@@ -398,20 +463,15 @@ struct Tile
         resolution /= stride;
         shader->setUniformValue("resolution", resolution);
 
-//        if (shader == m_shaderJoinedDownsampledTextured)  {
-//            resolution -= QSize(1,1);
-//        }
-
-
         shader->setUniformValue("elevationScale", elevationScale);
         const QMatrix4x4 m = transformation * tileMatrix;
         shader->setUniformValue("matrix", m);
         shader->setUniformValue("color", QColor(255,255,255,255));
-        if (mapTexture()) {
+//        if (rasterTxt) {
             shader->setUniformValue("raster", 0);
-            shader->setUniformValueArray("lightingCurve", lightingCurve(), 256, 1);
-        }
-        shader->setUniformValue("brightness", brightness);
+//            shader->setUniformValueArray("lightingCurve", lightingCurve(), 256, 1);
+        //}
+        shader->setUniformValue("brightness", (rasterTxt) ? brightness : 1.0f );
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
         shader->setUniformValue("lightDirection", lightDirection);
         shader->setUniformValue("cOff", (joinTiles && !interactive) ? -0.5f: 0.5f);
@@ -423,8 +483,10 @@ struct Tile
 
         f->glDrawArrays(GL_TRIANGLES, 0, numVertices);
         shader->release();
-        if (mapTexture())
-            mapTexture()->release();
+        if (rasterTxt)
+            rasterTxt->release();
+        else
+            m_texWhite->release();
     }
 
     inline int totVertices(bool joinTiles, int stride = 1) const {
@@ -480,10 +542,12 @@ struct Tile
     static QOpenGLShaderProgram *m_shader;
     static QOpenGLShaderProgram *m_shaderTextured;
     static QOpenGLShaderProgram *m_shaderJoinedDownsampledTextured;
+    static QScopedPointer<QOpenGLTexture> m_texWhite;
 };
 QOpenGLShaderProgram *Tile::m_shader{nullptr};
 QOpenGLShaderProgram *Tile::m_shaderTextured{nullptr};
 QOpenGLShaderProgram *Tile::m_shaderJoinedDownsampledTextured{nullptr};
+QScopedPointer<QOpenGLTexture> Tile::m_texWhite;
 GLint Tile::m_maxTexSize{0};
 
 QDebug operator<<(QDebug d, const  Tile &t) {
@@ -669,7 +733,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
 
 public:
-    TerrainViewer(QQuickItem *parent = nullptr) {
+    TerrainViewer(QQuickItem *parent = nullptr) : QQuickFramebufferObject(parent) {
         setFlag(ItemHasContents);
         setTextureFollowsItemSize(true);
         setMirrorVertically(true);

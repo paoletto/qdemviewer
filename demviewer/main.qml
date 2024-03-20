@@ -35,6 +35,9 @@ QC2.ApplicationWindow {
     visible: true
     title: qsTr("DEM Viewer")
 
+    onWidthChanged: arcball.setSize(Qt.size(width, height))
+    onHeightChanged: arcball.setSize(Qt.size(width, height))
+
     Shortcut {
         sequence: StandardKey.Quit
         onActivated: {
@@ -331,13 +334,10 @@ QC2.ApplicationWindow {
 
     }
 
-    onWidthChanged: arcball.setSize(Qt.size(width, height))
-    onHeightChanged: arcball.setSize(Qt.size(width, height))
     Component.onCompleted: {
         if (root.urlTemplates.length == 0) {
             root.pushTemplate("osm", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
         }
-        arcball.setSize(Qt.size(width, height))
     }
 
     QC2.SplitView {
@@ -543,6 +543,12 @@ QC2.ApplicationWindow {
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation
+                    }
+
+                    onWidthChanged: updateArcball()
+                    onHeightChanged: updateArcball()
+                    function updateArcball() {
+                        arcball.setSize(Qt.size(viewer.width, viewer.height))
                     }
 
                     MouseArea {

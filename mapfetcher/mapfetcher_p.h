@@ -50,6 +50,7 @@ public:
     ~ThreadedJob() override = default;
 
     void move2thread(QThread &t);
+    virtual int priority() const;
 
 public slots:
     virtual void process() = 0;
@@ -187,7 +188,7 @@ public:
     quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
                             const QGeoCoordinate &cbr,
                             const quint8 zoom,
-                            quint8) override;
+                            quint8 destinationZoom) override;
 
     quint64 requestCoverage(const QGeoCoordinate &ctl,
                             const QGeoCoordinate &cbr,
@@ -359,10 +360,10 @@ class ASTCFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
 {
     Q_DECLARE_PUBLIC(ASTCFetcherWorker)
 public:
-    ASTCFetcherWorkerPrivate();
+    ASTCFetcherWorkerPrivate() = default;
     ~ASTCFetcherWorkerPrivate() override = default;
 
-//    std::unordered_map<quint64, quint64> m_request2remainingASTCHandlers;
+    std::unordered_map<quint64, quint64> m_request2remainingASTCHandlers;
 };
 
 class NetworkIOManager: public QObject //living in a separate thread
@@ -403,10 +404,11 @@ public slots:
                             const bool clip = false);
 
     void requestSlippyTiles(ASTCFetcher *fetcher,
-                               quint64 requestId,
-                               const QGeoCoordinate &ctl,
-                               const QGeoCoordinate &cbr,
-                               const quint8 zoom);
+                            quint64 requestId,
+                            const QGeoCoordinate &ctl,
+                            const QGeoCoordinate &cbr,
+                            const quint8 zoom,
+                            quint8 destinationZoom);
 
     void requestCoverage(ASTCFetcher *fetcher,
                             quint64 requestId,
@@ -512,6 +514,11 @@ protected:
 struct LoopedThread : public QThread {
     LoopedThread(QObject *parent = nullptr) : QThread(parent) {}
     ~LoopedThread() override = default;
+
+    // Somehow this isn't really helping.
+    void run() override {
+        exec();
+    }
 };
 
 class NetworkManager
@@ -591,14 +598,16 @@ public:
     quint64 requestSlippyTiles(ASTCFetcher &fetcher,
                                const QGeoCoordinate &ctl,
                                const QGeoCoordinate &cbr,
-                               const quint8 zoom) {
+                               const quint8 zoom,
+                               const quint8 destinationZoom) {
         const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(ASTCFetcher *, &fetcher)
                                   , Q_ARG(qulonglong, requestId)
                                   , Q_ARG(QGeoCoordinate, ctl)
                                   , Q_ARG(QGeoCoordinate, cbr)
-                                  , Q_ARG(uchar, zoom));
+                                  , Q_ARG(uchar, zoom)
+                                  , Q_ARG(uchar, destinationZoom));
         return requestId;
     }
 
@@ -649,7 +658,7 @@ class TileReplyHandler : public ThreadedJob
 public:
     TileReplyHandler(QNetworkReply *reply,
                      MapFetcherWorker &mapFetcher);
-    ~TileReplyHandler() override;;
+    ~TileReplyHandler() override = default;
 
 signals:
     void insertTile(quint64 id,TileKey k, std::shared_ptr<QImage> i);
@@ -668,6 +677,16 @@ private:
     MapFetcherWorker *m_mapFetcher{nullptr};
 };
 
+class DEMTileReplyHandler : public TileReplyHandler {
+    Q_OBJECT
+public:
+    DEMTileReplyHandler(QNetworkReply *reply,
+                     MapFetcherWorker &mapFetcher);
+    ~DEMTileReplyHandler() override = default;
+
+    int priority() const override;
+};
+
 class DEMReadyHandler : public ThreadedJob
 {
     Q_OBJECT
@@ -680,6 +699,7 @@ public:
                     std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> neighbors = {});
 
     ~DEMReadyHandler() override = default;
+    int priority() const override;
     const TileKey &tileKey() const {
         return m_key;
     }
@@ -714,6 +734,7 @@ public:
     const TileKey &tileKey() const {
         return m_key;
     }
+    int priority() const override;
 
 signals:
     void insertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> i);
