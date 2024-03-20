@@ -516,7 +516,44 @@ QC2.ApplicationWindow {
                         }
                     }
 
+                    Component.onCompleted: {
+                        if (visible)
+                            hiderTimer.start()
+                    }
+                    gesture.onPanStarted: {
+                        tips.hide()
+                    }
+                    gesture.onPinchStarted: {
+                        tips.hide()
+                    }
+                    Rectangle {
+                        id: tips
+                        Timer {
+                            id: hiderTimer
+                            repeat: false
+                            interval: 2000
+                            running: false
+                            onTriggered: tips.hide()
+                        }
+                        function hide() {
+                            tips.opacity = 0
+                        }
 
+                        anchors.centerIn: parent
+                        color: Qt.rgba(0.5,0.5,0.5,0.5)
+                        radius: 5
+                        width: 300
+                        height: 40
+                        visible: opacity !== 0
+                        Behavior on opacity {
+                          NumberAnimation  { duration: 700 ; easing.type: Easing.OutQuad  }
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "Shift + Left click to select a map area"
+                        }
+                    }
                 }
             } // Item
         } // Tab
