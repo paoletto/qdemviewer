@@ -110,7 +110,7 @@ struct CompressedTextureData {
     CompressedTextureData() = default;
     virtual ~CompressedTextureData() = default;
 
-    virtual void upload(QSharedPointer<QOpenGLTexture> &) = 0;
+    virtual quint64 upload(QSharedPointer<QOpenGLTexture> &) = 0;
     virtual QSize size() const = 0;
 };
 
@@ -118,12 +118,14 @@ struct ASTCCompressedTextureData : public CompressedTextureData{
     ASTCCompressedTextureData() = default;
     ~ASTCCompressedTextureData() override = default;
 
-    void upload(QSharedPointer<QOpenGLTexture> &t) override;
+    quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
     QSize size() const override;
 
     static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i);
 
     std::shared_ptr<QImage> m_image;
+    std::vector<QByteArray> m_mips;
+    QOpenGLTexture::TextureFormat m_glFormat;
 };
 
 

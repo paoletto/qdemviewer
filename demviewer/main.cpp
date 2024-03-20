@@ -316,6 +316,8 @@ struct Tile
 
     void setMap(std::shared_ptr<CompressedTextureData> map) const {
         m_map = map;
+        if (!m_map)
+            m_rasterBytes = 0;
     }
 
     void setNeighbors(std::shared_ptr<Tile> demBottom = {},
@@ -372,7 +374,7 @@ struct Tile
     QSharedPointer<QOpenGLTexture> mapTexture() const
     {
         if (m_map) {
-            m_map->upload(m_texMap);
+            m_rasterBytes = m_map->upload(m_texMap);
             m_map = nullptr;
         }
         return m_texMap;
@@ -516,9 +518,10 @@ struct Tile
     quint64 allocatedGraphicsMemoryBytes() const {
         quint64 res = 0;
         if (m_texDem)
-            res += m_texDem->width() * m_texDem->height() * 4; // rgba8
+            res += m_texDem->width() * m_texDem->height() * 4; // r32f
         if (m_texMap)
-            res += (m_texMap->width() * m_texMap->height() * sizeof(GLfloat)) * 1.3333; //mipmapped
+            //res += (m_texMap->width() * m_texMap->height() * sizeof(GLfloat)) * 1.3333; //mipmapped
+            res += m_rasterBytes;
         return res;
     }
 
@@ -526,6 +529,7 @@ struct Tile
     TileKey m_key;
     mutable QSize m_resolution; // GLint bcz somehow setUniformValue is picking the wrong overload otherwise
 
+    mutable quint64 m_rasterBytes{0};
     mutable bool m_hasBorders{false};
     mutable bool m_initialized{false};
     mutable Heightmap m_dem;

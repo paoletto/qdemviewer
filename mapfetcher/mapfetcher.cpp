@@ -49,6 +49,7 @@
 #include <cstdlib>
 #include <vector>
 #include <map>
+#include "astcenc.h"
 
 QAtomicInt NetworkConfiguration::offline{false};
 
@@ -89,7 +90,154 @@ void hash_combine(std::size_t& seed, const T& v) {
 //bool isPowerOf2(size_t x) {
 //    return (x & (x - 1)) == 0;
 //}
+bool isEven(const QSize &s) {
+    return (s.width() % 2) == 0 && (s.height() % 2) == 0;
 }
+}
+
+// to use a single astc context
+class ASTCEncoder
+{
+public:
+    static ASTCEncoder& instance()
+    {
+        static ASTCEncoder instance;
+        return instance;
+    }
+
+    QByteArray compress(QImage ima) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
+        // Compute the number of ASTC blocks in each dimension
+        unsigned int block_count_x = (ima.width() + block_x - 1) / block_x;
+        unsigned int block_count_y = (ima.height() + block_y - 1) / block_y;
+
+        // Compress the image
+        astcenc_image image;
+        image.dim_x = ima.width();
+        image.dim_y = ima.height();
+        image.dim_z = 1;
+        image.data_type = ASTCENC_TYPE_U8;
+        uint8_t* slices = ima.bits();
+        image.data = reinterpret_cast<void**>(&slices);
+
+        // Space needed for 16 bytes of output per compressed block
+        size_t comp_len = block_count_x * block_count_y * 16;
+
+        QByteArray res;
+        res.resize(comp_len);
+
+        astcenc_error status = astcenc_compress_image(m_ctx,
+                                                      &image,
+                                                      &swizzle,
+                                                      reinterpret_cast<uint8_t *>(res.data()),
+                                                      comp_len,
+                                                      0);
+        if (status != ASTCENC_SUCCESS) {
+            qWarning() << "ERROR: Codec compress failed: "<< astcenc_get_error_string(status);
+            qFatal("Terminating");
+        }
+        return res;
+    }
+
+    QOpenGLTexture::TextureFormat astcFormat() const {
+        auto sz = std::make_pair<int, int>(block_x,block_y);
+        if (m_formats.find(sz) != m_formats.end())
+            return m_formats.at(sz);
+        return QOpenGLTexture::NoFormat;
+    }
+
+    static QImage halve(const QImage &src) { // TODO: change into move once m_image is gone from CompressedTextureData?
+        if ((src.width() % 2) != 0  || (src.height() % 2) != 0) {
+            qWarning() << "Requested halving of size "<< QSize(src.width(), src.height()) <<" not supported";
+            return src; // only do square power of 2 textures
+        }
+
+        const QSize size = QSize(src.width() / 2, src.height() / 2);
+        const float hMultiplier = src.width() / float(size.width());
+        const float vMultiplier = src.height() / float(size.height());
+        QImage res(size, src.format());
+
+        float pixelsPerPatch = int(hMultiplier) * int(vMultiplier);
+        for (int y = 0; y < size.height(); ++y) {
+            for (int x = 0; x < size.width(); ++x) {
+                float sumR = 0;
+                float sumG = 0;
+                float sumB = 0;
+                float sumA = 0;
+
+                for (int iy = 0; iy < int(vMultiplier); ++iy) {
+                    for (int ix = 0; ix < int(hMultiplier); ++ix) {
+                        auto p = src.pixel(x * int(hMultiplier) + ix,
+                                           y * int(vMultiplier) + iy);
+                        sumR += qRed(p);
+                        sumR += qGreen(p);
+                        sumR += qBlue(p);
+                        sumR += qAlpha(p);
+                    }
+                }
+                QRgb avg = qRgba(sumR / pixelsPerPatch
+                                ,sumG / pixelsPerPatch
+                                ,sumB / pixelsPerPatch
+                                ,sumA / pixelsPerPatch);
+                res.setPixel(x,y,avg);
+            }
+        }
+        return res;
+    }
+
+private:
+    ASTCEncoder()  {
+        static const astcenc_profile profile = ASTCENC_PRF_LDR;
+        //static const float quality = ASTCENC_PRE_MEDIUM;
+        static const float quality = ASTCENC_PRE_FASTEST;
+        swizzle = {
+            ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A
+        };
+
+        astcenc_error status;
+
+        config.block_x = block_x;
+        config.block_y = block_y;
+        config.profile = profile;
+
+        status = astcenc_config_init(profile, block_x, block_y, block_z, quality, 0, &config);
+        if (status != ASTCENC_SUCCESS) {
+            qWarning() << "ERROR: Codec config init failed: " << astcenc_get_error_string(status);
+            qFatal("Terminating");
+        }
+
+        status = astcenc_context_alloc(&config, thread_count, &m_ctx);
+        if (status != ASTCENC_SUCCESS) {
+            qWarning() << "ERROR: Codec context alloc failed: "<< astcenc_get_error_string(status);
+            qFatal("Terminating");
+        }
+
+        m_formats[{4,4}] = QOpenGLTexture::RGBA_ASTC_4x4;
+        m_formats[{5,5}] = QOpenGLTexture::RGBA_ASTC_4x4;
+        m_formats[{6,6}] = QOpenGLTexture::RGBA_ASTC_4x4;
+        m_formats[{8,8}] = QOpenGLTexture::RGBA_ASTC_4x4;
+        m_formats[{10,10}] = QOpenGLTexture::RGBA_ASTC_4x4;
+        m_formats[{12,12}] = QOpenGLTexture::RGBA_ASTC_4x4;
+    }
+
+    ~ASTCEncoder() {
+        if (m_ctx)
+            astcenc_context_free(m_ctx);
+    }
+
+    astcenc_context *m_ctx{nullptr};
+    astcenc_swizzle swizzle;
+    astcenc_config config;
+
+    static const unsigned int thread_count = 1;
+    static const unsigned int block_x = 12; //6;
+    static const unsigned int block_y = 12; //6;
+    static const unsigned int block_z = 1;
+    std::map<std::pair<int, int>, QOpenGLTexture::TextureFormat > m_formats;
+
+public:
+    ASTCEncoder(ASTCEncoder const&)            = delete;
+    void operator=(ASTCEncoder const&)         = delete;
+};
 
 namespace std {
 size_t hash<TileKey>::operator()(const TileKey& id) const {
@@ -1876,18 +2024,46 @@ void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
     emit coverageReady(id);
 }
 
-void ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
+#if 0
+quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 {
     if (!m_image)
-        return;
+        return 0;
     t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
     t->setMaximumAnisotropy(16);
     t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
                                QOpenGLTexture::Linear);
     t->setWrapMode(QOpenGLTexture::ClampToEdge);
     t->setData(*m_image);
+    return m_image->size().width() * m_image->size().height() * 4; // rgba8
 }
+#else
+quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
+{
+    if (!m_mips.size())
+        return 0;
 
+    t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+    t->setAutoMipMapGenerationEnabled(false);
+    t->setFormat(m_glFormat);
+    t->setMaximumAnisotropy(16);
+    t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                               QOpenGLTexture::Linear);
+    t->setWrapMode(QOpenGLTexture::ClampToEdge);
+
+    int maxLod = m_mips.size() - 1;
+    maxLod = 0;
+    t->setMipMaxLevel(maxLod);
+
+    quint64 sz{0};
+    for (int i  = 0; i <= maxLod; ++i) {
+        t->setCompressedData(i, m_mips.at(i).size(), m_mips.at(i).constData());
+        sz += m_mips.at(i).size();
+    }
+
+    return sz; // astc
+}
+#endif
 QSize ASTCCompressedTextureData::size() const
 {
     return QSize();
@@ -1897,6 +2073,21 @@ std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage
 {
     std::shared_ptr<ASTCCompressedTextureData> res = std::make_shared<ASTCCompressedTextureData>();
     res->m_image = std::make_shared<QImage>(i->mirrored(false, true));
+
+
+    QSize size(i->width(), i->height());
+    if (!isEven(size)) {
+        qWarning() << "Warning: cannot generate mips for size"<<size;
+    }
+
+    // Generate mips
+    res->m_mips.emplace_back(ASTCEncoder::instance().compress(*res->m_image));
+    QImage halved = *res->m_image;
+    do {
+        halved = ASTCEncoder::halve(halved);
+        res->m_mips.emplace_back(ASTCEncoder::instance().compress(halved));
+    } while (isEven(halved.size()));
+    res->m_glFormat = ASTCEncoder::instance().astcFormat();
     return res;
 }
 
