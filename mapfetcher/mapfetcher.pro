@@ -11,6 +11,8 @@ UI_DIR = $$DESTDIR/.ui
 QT += core gui network network-private sql
 QT += positioning-private #for QDouble math
 QT += location-private #for QGeoCameraTiles/Private
+QT += gui-private # TODO: make this one conditional together with ASTC support (and related inclusions below)
+
 
 CONFIG += c++14
 QMAKE_CXXFLAGS += "-fno-sized-deallocation"
@@ -18,11 +20,17 @@ QMAKE_CXXFLAGS += "-fno-sized-deallocation"
 INCLUDEPATH += $$PWD/astc-encoder
 
 #Input
-HEADERS += mapfetcher.h mapfetcher_p.h \
-    networksqlitecache_p.h
-SOURCES += mapfetcher.cpp \
-    networksqlitecache.cpp
+HEADERS +=  mapfetcher.h \
+            mapfetcher_p.h \
+            networksqlitecache_p.h \
+            astccache_p.h
 
+SOURCES += mapfetcher.cpp \
+    networksqlitecache.cpp \
+    astccache.cpp
+
+# TODO: figure proper compilesettings to build these
+# in order to enable all optimizations/hw acceleration
 #astc-encoder
 HEADERS += $$PWD/astc-encoder/astcenc.h
 SOURCES +=  $$PWD/astc-encoder/astcenc_averages_and_directions.cpp \

@@ -79,6 +79,7 @@ QC2.ApplicationWindow {
         property alias zlsliderValue: zlslider.value
         property alias zlMapSliderValue: zlMapSlider.value
         property alias brightness: brightnessSlider.value
+        property alias decimation: decimationSlider.value
         property alias rasterEnabled: rasterEnabled.checked
         property alias fastInteraction: fastInteractionMenuItem.checked
         property alias autoRefinement: autoRefinementMenuItem.checked
@@ -128,7 +129,7 @@ QC2.ApplicationWindow {
                 checked: false
             }
             QC2.Action {
-                text: qsTr("Clear Data")
+                text: qsTr("Clear Graphics Data")
                 onTriggered: viewer.reset()
             }
         }
@@ -195,23 +196,49 @@ QC2.ApplicationWindow {
                 id: joinTilesMenuItem
                 text: qsTr("Join Tiles")
                 checkable: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Render connecting geometry between tiles"
+                QC2.ToolTip.delay: 300
             }
             QC2.MenuItem {
                 id: fastInteractionMenuItem
                 text: qsTr("Fast Interaction")
                 checkable: true
                 checked: true
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Render a decimated mesh during interaction"
+                QC2.ToolTip.delay: 300
             }
             QC2.MenuItem {
                 id: autoRefinementMenuItem
                 text: qsTr("Auto Refinement")
                 checkable: true
                 checked: true
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Render the mesh fully when interaction stops"
+                QC2.ToolTip.delay: 300
             }
-            QC2.Action {
+            QC2.MenuItem {
                 id: invertTessDirection
                 checkable: true;
                 text: qsTr("Alt tessellation")
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Split mesh quads along the other diagonal"
+                QC2.ToolTip.delay: 300
+            }
+            QC2.MenuItem {
+                id: astc
+                text: qsTr("ASTC compression")
+                checkable: true
+                checked: false
+
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Texture compression reduces memory usage"
+                QC2.ToolTip.delay: 300
             }
             RowLayout {
                 spacing: 4
@@ -344,7 +371,6 @@ QC2.ApplicationWindow {
         anchors.fill: parent
         Item {
             QC2.SplitView.preferredWidth: parent.width * .5
-//            title: "Map"
             Item {
                 anchors.fill: parent
                 Map {
@@ -558,7 +584,6 @@ QC2.ApplicationWindow {
             } // Item
         } // Tab
         Item {
-//            title: "Terrain"
             Rectangle {
                 anchors.fill: parent
                 color: "green"
@@ -574,6 +599,7 @@ QC2.ApplicationWindow {
                     tessellationDirection: invertTessDirection.checked
                     lightDirection: shadingSphere.pos
                     offline: offline.checked
+                    astcEnabled: astc.checked
                     fastInteraction: fastInteractionMenuItem.checked
                     autoRefinement: autoRefinementMenuItem.checked
                     downsamplingRate: decimationSlider.rate

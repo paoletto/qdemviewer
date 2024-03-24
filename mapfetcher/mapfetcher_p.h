@@ -33,6 +33,7 @@
 #include <set>
 #include <queue>
 #include <unordered_set>
+#include <private/qtexturefiledata_p.h>
 
 using HeightmapCache = std::map<TileKey, std::shared_ptr<Heightmap>>;
 using TileNeighborsMap = std::map<TileKey,
@@ -174,6 +175,19 @@ public:
     std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
     bool m_borders{false};
+};
+
+struct ASTCCompressedTextureData : public CompressedTextureData {
+    ASTCCompressedTextureData() = default;
+    ~ASTCCompressedTextureData() override = default;
+
+    quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
+    QSize size() const override;
+
+    static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i);
+
+    std::shared_ptr<QImage> m_image;
+    std::vector<QTextureFileData> m_mips;
 };
 
 class ASTCFetcherPrivate :  public MapFetcherPrivate
@@ -427,80 +441,11 @@ protected:
             m_worker = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue);
     }
 
-    MapFetcherWorker *getMapFetcherWorker(MapFetcher *f) {
-        MapFetcherWorker *w;
-        auto it = m_mapFetcher2Worker.find(f);
-        if (it == m_mapFetcher2Worker.end()) {
-            init();
-            w = new MapFetcherWorker(this, f, m_worker);
-            m_mapFetcher2Worker.insert({f, w});
-            connect(w,
-                    SIGNAL(tileReady(quint64,TileKey,std::shared_ptr<QImage>)),
-                    f,
-                    SLOT(onInsertTile(quint64,TileKey,std::shared_ptr<QImage>)), Qt::QueuedConnection);
-            connect(w,
-                    SIGNAL(coverageReady(quint64,std::shared_ptr<QImage>)),
-                    f,
-                    SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
-            connect(w,
-                    SIGNAL(requestHandlingFinished(quint64)),
-                    f,
-                    SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
-        } else {
-            w = it->second;
-        }
-        return w;
-    }
+    MapFetcherWorker *getMapFetcherWorker(MapFetcher *f);
 
-    DEMFetcherWorker *getDEMFetcherWorker(DEMFetcher *f) {
-        DEMFetcherWorker *w;
-        auto it = m_demFetcher2Worker.find(f);
-        if (it == m_demFetcher2Worker.end()) {
-            init();
-            w = new DEMFetcherWorker(this, f, m_worker, f->d_func()->m_borders);
-            m_demFetcher2Worker.insert({f, w});
-            connect(w,
-                    SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<Heightmap>)),
-                    f,
-                    SLOT(onInsertHeightmap(quint64,TileKey,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
-            connect(w,
-                    SIGNAL(heightmapCoverageReady(quint64,std::shared_ptr<Heightmap>)),
-                    f,
-                    SLOT(onInsertHeightmapCoverage(quint64,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
-            connect(w,
-                    SIGNAL(requestHandlingFinished(quint64)),
-                    f,
-                    SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
-        } else {
-            w = it->second;
-        }
-        return w;
-    }
+    DEMFetcherWorker *getDEMFetcherWorker(DEMFetcher *f);
 
-    ASTCFetcherWorker *getASTCFetcherWorker(ASTCFetcher *f) {
-        ASTCFetcherWorker *w;
-        auto it = m_astcFetcher2Worker.find(f);
-        if (it == m_astcFetcher2Worker.end()) {
-            init();
-            w = new ASTCFetcherWorker(this, f, m_worker);
-            m_astcFetcher2Worker.insert({f, w});
-            connect(w,
-                    &ASTCFetcherWorker::tileASTCReady,
-                    f,
-                    &ASTCFetcher::onInsertASTCTile, Qt::QueuedConnection);
-            connect(w,
-                    &ASTCFetcherWorker::coverageASTCReady,
-                    f,
-                    &ASTCFetcher::onInsertASTCCoverage, Qt::QueuedConnection);
-            connect(w,
-                    SIGNAL(requestHandlingFinished(quint64)),
-                    f,
-                    SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
-        } else {
-            w = it->second;
-        }
-        return w;
-    }
+    ASTCFetcherWorker *getASTCFetcherWorker(ASTCFetcher *f);
 
 protected:
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it

@@ -35,6 +35,7 @@
 #include <math.h>
 #include <algorithm>
 #include <unordered_map>
+#include <private/qtexturefilereader_p.h>
 
 struct TileKey {
     quint64 x;
@@ -74,6 +75,7 @@ struct TileData {
 
 struct NetworkConfiguration {
     static QAtomicInt offline;
+    static QAtomicInt astcEnabled;
 };
 
 struct Heightmap {
@@ -113,21 +115,6 @@ struct CompressedTextureData {
     virtual quint64 upload(QSharedPointer<QOpenGLTexture> &) = 0;
     virtual QSize size() const = 0;
 };
-
-struct ASTCCompressedTextureData : public CompressedTextureData{
-    ASTCCompressedTextureData() = default;
-    ~ASTCCompressedTextureData() override = default;
-
-    quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
-    QSize size() const override;
-
-    static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i);
-
-    std::shared_ptr<QImage> m_image;
-    std::vector<QByteArray> m_mips;
-    QOpenGLTexture::TextureFormat m_glFormat;
-};
-
 
 class MapFetcherPrivate;
 class MapFetcher : public QObject {

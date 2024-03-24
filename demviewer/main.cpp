@@ -55,7 +55,7 @@
 #include <QOpenGLShaderProgram>
 #include <QPointer>
 #include <QOpenGLVertexArrayObject>
-#include <QOpenGLFunctions_4_5_Core>
+#include <QOpenGLFunctions_4_0_Core>
 #include <QOpenGLExtraFunctions>
 #include <QOpenGLTexture>
 #include <QMatrix4x4>
@@ -655,7 +655,7 @@ protected:
     void render() override
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-        auto *f45 = QOpenGLContext::currentContext()->versionFunctions<QOpenGLFunctions_4_5_Core>();
+        auto *f4 = QOpenGLContext::currentContext()->versionFunctions<QOpenGLFunctions_4_0_Core>();
 
         f->glClearColor(0, 0, 0, 0);
         f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -666,7 +666,7 @@ protected:
 
         GLint polygonMode;
         f->glGetIntegerv(GL_POLYGON_MODE, &polygonMode);
-        f45->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
+        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
 //        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
 //        f45->glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
@@ -686,7 +686,7 @@ protected:
                    m_downsamplingRate);
         }
 
-        f45->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
+        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
         if (m_window)
             m_window->resetOpenGLState();
     }
@@ -732,6 +732,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(quint64 allocatedGraphicsBytes READ allocatedGraphicsBytes NOTIFY allocatedGraphicsBytesChanged)
     Q_PROPERTY(QVariant lightDirection READ lightDirection WRITE setLightDirection)
     Q_PROPERTY(bool offline READ offline WRITE setOffline NOTIFY offlineChanged)
+    Q_PROPERTY(bool astcEnabled READ astc WRITE setAstc NOTIFY astcChanged)
     Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
     Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
@@ -885,6 +886,17 @@ public:
         emit offlineChanged();
     }
 
+    bool astc() const {
+        return NetworkConfiguration::astcEnabled;
+    }
+
+    void setAstc(bool enabled) {
+        if (NetworkConfiguration::astcEnabled == enabled)
+            return;
+        NetworkConfiguration::astcEnabled = enabled;
+        emit astcChanged();
+    }
+
     bool fastInteraction() const {
         return m_fastInteraction;
     }
@@ -925,6 +937,7 @@ signals:
     void numTrianglesChanged();
     void allocatedGraphicsBytesChanged();
     void offlineChanged();
+    void astcChanged();
     void fastInteractionChanged();
     void autoRefinementChanged();
 
@@ -1001,7 +1014,7 @@ protected slots:
     }
 
     void onRequestHandlingFinished(quint64 id) {
-        qInfo() << "Request "<<id<< " finished.";
+        qInfo() << "Request "<<id<< " finished. sender: "<<sender();
     }
 
 
@@ -1106,6 +1119,13 @@ int main(int argc, char *argv[])
     QCoreApplication::setApplicationName(QStringLiteral("QDEMViewer"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("test"));
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+
+    QSurfaceFormat fmt;
+    fmt.setDepthBufferSize(24);
+    fmt.setVersion(4, 5);
+    fmt.setRenderableType(QSurfaceFormat::OpenGL);
+    fmt.setProfile(QSurfaceFormat::CoreProfile);
+    QSurfaceFormat::setDefaultFormat(fmt);
 
 #ifdef Q_OS_LINUX
     qint64 pid = QCoreApplication::applicationPid();

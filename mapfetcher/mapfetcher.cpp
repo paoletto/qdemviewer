@@ -21,6 +21,7 @@
 #include "mapfetcher.h"
 #include "mapfetcher_p.h"
 #include "networksqlitecache_p.h"
+#include "astccache_p.h"
 
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtLocation/private/qgeocameratiles_p_p.h>
@@ -38,11 +39,17 @@
 #include <QMatrix4x4>
 #include <QQuaternion>
 #include <QVector3D>
+#include <QOpenGLPixelTransferOptions>
+#include <QOpenGLContext>
+#include <QOpenGLFunctions>
+#include <QOpenGLExtraFunctions>
+#include <QOpenGLFunctions_4_5_Core>
 
 #include <QStandardPaths>
 #include <QDirIterator>
 #include <QDir>
 #include <QFileInfo>
+#include <QCryptographicHash>
 
 #include <iostream>
 #include <string>
@@ -52,6 +59,7 @@
 #include "astcenc.h"
 
 QAtomicInt NetworkConfiguration::offline{false};
+QAtomicInt NetworkConfiguration::astcEnabled{false};
 
 namespace  {
 static constexpr std::array<Heightmap::Neighbor, 8> neighbors = {
@@ -99,13 +107,24 @@ bool isEven(const QSize &s) {
 class ASTCEncoder
 {
 public:
+    struct astc_header
+    {
+        uint8_t magic[4];
+        uint8_t block_x;
+        uint8_t block_y;
+        uint8_t block_z;
+        uint8_t dim_x[3];			// dims = dim[0] + (dim[1] << 8) + (dim[2] << 16)
+        uint8_t dim_y[3];			// Sizes are given in texels;
+        uint8_t dim_z[3];			// block count is inferred
+    };
+
     static ASTCEncoder& instance()
     {
         static ASTCEncoder instance;
         return instance;
     }
 
-    QByteArray compress(QImage ima) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
+    QTextureFileData compress(QImage ima) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
         // Compute the number of ASTC blocks in each dimension
         unsigned int block_count_x = (ima.width() + block_x - 1) / block_x;
         unsigned int block_count_y = (ima.height() + block_y - 1) / block_y;
@@ -122,27 +141,54 @@ public:
         // Space needed for 16 bytes of output per compressed block
         size_t comp_len = block_count_x * block_count_y * 16;
 
-        QByteArray res;
-        res.resize(comp_len);
+        QByteArray data;
+        data.resize(comp_len);
 
         astcenc_error status = astcenc_compress_image(m_ctx,
                                                       &image,
                                                       &swizzle,
-                                                      reinterpret_cast<uint8_t *>(res.data()),
+                                                      reinterpret_cast<uint8_t *>(data.data()),
                                                       comp_len,
                                                       0);
-        if (status != ASTCENC_SUCCESS) {
+        if (status != ASTCENC_SUCCESS || !data.size()) {
             qWarning() << "ERROR: Codec compress failed: "<< astcenc_get_error_string(status);
             qFatal("Terminating");
         }
-        return res;
-    }
 
-    QOpenGLTexture::TextureFormat astcFormat() const {
-        auto sz = std::make_pair<int, int>(block_x,block_y);
-        if (m_formats.find(sz) != m_formats.end())
-            return m_formats.at(sz);
-        return QOpenGLTexture::NoFormat;
+        astc_header hdr;
+        hdr.magic[0] =  ASTC_MAGIC_ID        & 0xFF;
+        hdr.magic[1] = (ASTC_MAGIC_ID >>  8) & 0xFF;
+        hdr.magic[2] = (ASTC_MAGIC_ID >> 16) & 0xFF;
+        hdr.magic[3] = (ASTC_MAGIC_ID >> 24) & 0xFF;
+
+        hdr.block_x = static_cast<uint8_t>(block_x);
+        hdr.block_y = static_cast<uint8_t>(block_y);
+        hdr.block_z = static_cast<uint8_t>(1);
+
+        hdr.dim_x[0] =  image.dim_x        & 0xFF;
+        hdr.dim_x[1] = (image.dim_x >>  8) & 0xFF;
+        hdr.dim_x[2] = (image.dim_x >> 16) & 0xFF;
+
+        hdr.dim_y[0] =  image.dim_y       & 0xFF;
+        hdr.dim_y[1] = (image.dim_y >>  8) & 0xFF;
+        hdr.dim_y[2] = (image.dim_y >> 16) & 0xFF;
+
+        hdr.dim_z[0] =  image.dim_z        & 0xFF;
+        hdr.dim_z[1] = (image.dim_z >>  8) & 0xFF;
+        hdr.dim_z[2] = (image.dim_z >> 16) & 0xFF;
+
+        QByteArray header(reinterpret_cast<char*>(&hdr)
+                          ,sizeof(astc_header));
+        data.insert(0, header);
+        QBuffer buf(&data);
+        buf.open(QIODevice::ReadOnly);
+        if (!buf.isReadable())
+            qFatal("QBuffer not readable");
+        QTextureFileReader reader(&buf);
+        if (!reader.canRead())
+            qFatal("QTextureFileReader failed reading");
+        QTextureFileData res = reader.read();
+        return res;
     }
 
     static QImage halve(const QImage &src) { // TODO: change into move once m_image is gone from CompressedTextureData?
@@ -169,9 +215,9 @@ public:
                         auto p = src.pixel(x * int(hMultiplier) + ix,
                                            y * int(vMultiplier) + iy);
                         sumR += qRed(p);
-                        sumR += qGreen(p);
-                        sumR += qBlue(p);
-                        sumR += qAlpha(p);
+                        sumG += qGreen(p);
+                        sumB += qBlue(p);
+                        sumA += qAlpha(p);
                     }
                 }
                 QRgb avg = qRgba(sumR / pixelsPerPatch
@@ -184,13 +230,86 @@ public:
         return res;
     }
 
+    static int blockSize() {
+        return block_x;
+    }
+
+    static QTextureFileData fromCached(QByteArray &cached) {
+        QBuffer buf(&cached);
+        buf.open(QIODevice::ReadOnly);
+        if (!buf.isReadable())
+            qFatal("QBuffer not readable");
+        QTextureFileReader reader(&buf);
+        if (!reader.canRead())
+            qFatal("QTextureFileReader failed reading");
+        QTextureFileData res = reader.read();
+        return res;
+    }
+
+    void generateMips(const QImage &ima, std::vector<QTextureFileData> &out) {
+        QCryptographicHash ch(QCryptographicHash::Md5);
+        ch.addData(reinterpret_cast<const char *>(ima.constBits()), ima.sizeInBytes());
+        QByteArray hash = ch.result();
+        QSize size = ima.size();
+        QByteArray cached = m_tileCache.tile(hash,
+                                               block_x,
+                                               block_y,
+                                               quality,
+                                               size.width(),
+                                               size.height());
+        if (cached.size()) {
+            out.push_back(fromCached(cached));
+
+            while (isEven(size)) {
+                size = QSize(size.width() / 2, size.height() / 2);
+                if (size.width() < ASTCEncoder::blockSize())
+                    break;
+                cached = m_tileCache.tile(hash,
+                                           block_x,
+                                           block_y,
+                                           quality,
+                                           size.width(),
+                                           size.height());
+                if (!cached.size())
+                    break;
+                out.push_back(fromCached(cached));
+            }
+        } else {
+            out.emplace_back(ASTCEncoder::instance().compress(ima));
+            m_tileCache.insert(hash,
+                               block_x,
+                               block_y,
+                               quality,
+                               size.width(),
+                               size.height(),
+                               out.back().data());
+            QImage halved = ima;
+            while (isEven(size)) {
+                size = QSize(size.width() / 2, size.height() / 2);
+                if (size.width() < ASTCEncoder::blockSize())
+                    break;
+                halved = ASTCEncoder::halve(halved);
+                out.emplace_back(ASTCEncoder::instance().compress(halved));
+                m_tileCache.insert(hash,
+                                   block_x,
+                                   block_y,
+                                   quality,
+                                   size.width(),
+                                   size.height(),
+                                   out.back().data());
+            }
+        }
+    }
+
 private:
-    ASTCEncoder()  {
-        static const astcenc_profile profile = ASTCENC_PRF_LDR;
-        //static const float quality = ASTCENC_PRE_MEDIUM;
-        static const float quality = ASTCENC_PRE_FASTEST;
-        swizzle = {
-            ASTCENC_SWZ_R, ASTCENC_SWZ_G, ASTCENC_SWZ_B, ASTCENC_SWZ_A
+    ASTCEncoder()
+    : m_cacheDirPath(QStringLiteral("%1/astcCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)))
+    , m_tileCache(m_cacheDirPath) {
+        swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
+            ASTCENC_SWZ_B,
+            ASTCENC_SWZ_G,
+            ASTCENC_SWZ_R,
+            ASTCENC_SWZ_A
         };
 
         astcenc_error status;
@@ -210,13 +329,6 @@ private:
             qWarning() << "ERROR: Codec context alloc failed: "<< astcenc_get_error_string(status);
             qFatal("Terminating");
         }
-
-        m_formats[{4,4}] = QOpenGLTexture::RGBA_ASTC_4x4;
-        m_formats[{5,5}] = QOpenGLTexture::RGBA_ASTC_4x4;
-        m_formats[{6,6}] = QOpenGLTexture::RGBA_ASTC_4x4;
-        m_formats[{8,8}] = QOpenGLTexture::RGBA_ASTC_4x4;
-        m_formats[{10,10}] = QOpenGLTexture::RGBA_ASTC_4x4;
-        m_formats[{12,12}] = QOpenGLTexture::RGBA_ASTC_4x4;
     }
 
     ~ASTCEncoder() {
@@ -227,12 +339,29 @@ private:
     astcenc_context *m_ctx{nullptr};
     astcenc_swizzle swizzle;
     astcenc_config config;
+    QString m_cacheDirPath;
+    ASTCCache m_tileCache;
+
+    static const astcenc_profile profile = ASTCENC_PRF_LDR;
+
+//    static const float ASTCENC_PRE_FASTEST = 0.0f;
+//    static const float ASTCENC_PRE_FAST = 10.0f;
+//    static const float ASTCENC_PRE_MEDIUM = 60.0f;
+//    static const float ASTCENC_PRE_THOROUGH = 98.0f;
+//    static const float ASTCENC_PRE_VERYTHOROUGH = 99.0f;
+//    static const float ASTCENC_PRE_EXHAUSTIVE = 100.0f;
+
+    constexpr static const float quality = 85.0f;
 
     static const unsigned int thread_count = 1;
-    static const unsigned int block_x = 12; //6;
-    static const unsigned int block_y = 12; //6;
+    static const unsigned int block_x = 8;
+    static const unsigned int block_y = 8;
+//    static const unsigned int block_x = 4;
+//    static const unsigned int block_y = 4;
+//    static const unsigned int block_x = 6;
+//    static const unsigned int block_y = 6;
     static const unsigned int block_z = 1;
-    std::map<std::pair<int, int>, QOpenGLTexture::TextureFormat > m_formats;
+    static const uint32_t ASTC_MAGIC_ID = 0x5CA1AB13;
 
 public:
     ASTCEncoder(ASTCEncoder const&)            = delete;
@@ -1513,6 +1642,81 @@ QString NetworkIOManager::cachePath() {
     return NAM::instance().cachePath();
 }
 
+MapFetcherWorker *NetworkIOManager::getMapFetcherWorker(MapFetcher *f) {
+    MapFetcherWorker *w;
+    auto it = m_mapFetcher2Worker.find(f);
+    if (it == m_mapFetcher2Worker.end()) {
+        init();
+        w = new MapFetcherWorker(this, f, m_worker);
+        m_mapFetcher2Worker.insert({f, w});
+        connect(w,
+                SIGNAL(tileReady(quint64,TileKey,std::shared_ptr<QImage>)),
+                f,
+                SLOT(onInsertTile(quint64,TileKey,std::shared_ptr<QImage>)), Qt::QueuedConnection);
+        connect(w,
+                SIGNAL(coverageReady(quint64,std::shared_ptr<QImage>)),
+                f,
+                SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
+        connect(w,
+                SIGNAL(requestHandlingFinished(quint64)),
+                f,
+                SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
+    } else {
+        w = it->second;
+    }
+    return w;
+}
+
+DEMFetcherWorker *NetworkIOManager::getDEMFetcherWorker(DEMFetcher *f) {
+    DEMFetcherWorker *w;
+    auto it = m_demFetcher2Worker.find(f);
+    if (it == m_demFetcher2Worker.end()) {
+        init();
+        w = new DEMFetcherWorker(this, f, m_worker, f->d_func()->m_borders);
+        m_demFetcher2Worker.insert({f, w});
+        connect(w,
+                SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<Heightmap>)),
+                f,
+                SLOT(onInsertHeightmap(quint64,TileKey,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+        connect(w,
+                SIGNAL(heightmapCoverageReady(quint64,std::shared_ptr<Heightmap>)),
+                f,
+                SLOT(onInsertHeightmapCoverage(quint64,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+        connect(w,
+                SIGNAL(requestHandlingFinished(quint64)),
+                f,
+                SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
+    } else {
+        w = it->second;
+    }
+    return w;
+}
+
+ASTCFetcherWorker *NetworkIOManager::getASTCFetcherWorker(ASTCFetcher *f) {
+    ASTCFetcherWorker *w;
+    auto it = m_astcFetcher2Worker.find(f);
+    if (it == m_astcFetcher2Worker.end()) {
+        init();
+        w = new ASTCFetcherWorker(this, f, m_worker);
+        m_astcFetcher2Worker.insert({f, w});
+        connect(w,
+                &ASTCFetcherWorker::tileASTCReady,
+                f,
+                &ASTCFetcher::onInsertASTCTile, Qt::QueuedConnection);
+        connect(w,
+                &ASTCFetcherWorker::coverageASTCReady,
+                f,
+                &ASTCFetcher::onInsertASTCCoverage, Qt::QueuedConnection);
+        connect(w,
+                SIGNAL(requestHandlingFinished(quint64)),
+                f,
+                SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
+    } else {
+        w = it->second;
+    }
+    return w;
+}
+
 // Currently used only for DEM
 void DEMFetcherWorker::onTileReady(const quint64 id, const TileKey k,  std::shared_ptr<QImage> i)
 {
@@ -1613,7 +1817,7 @@ void DEMFetcherWorker::onInsertHeightmap(quint64 id, const TileKey k, std::share
 void DEMFetcherWorker::onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h)
 {
     emit heightmapCoverageReady(id, std::move(h));
-    emit requestHandlingFinished(id);
+//    emit requestHandlingFinished(id);
 }
 
 MapFetcherWorker::MapFetcherWorker(QObject *parent, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker)
@@ -1937,6 +2141,9 @@ void ASTCFetcherWorker::onInsertTileASTC(quint64 id,
     Q_D(ASTCFetcherWorker);
     emit tileASTCReady(id, k, std::move(h));
     if (!--d->m_request2remainingASTCHandlers[id]) {
+//        emit requestHandlingFinished(id); // it's somewhat involved to avoid emitting this signal
+                                            // in mapfetcherworker. So emit it only there, as this
+                                            // astc tile will eventually be produced
         emit requestHandlingFinished(id);
     }
 }
@@ -1945,7 +2152,6 @@ void ASTCFetcherWorker::onInsertCoverageASTC(quint64 id,
                                              std::shared_ptr<CompressedTextureData> h)
 {
     emit coverageASTCReady(id, std::move(h));
-    emit requestHandlingFinished(id);
 }
 
 Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> tileImage,
@@ -2027,41 +2233,54 @@ void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
 #if 0
 quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 {
-    if (!m_image)
-        return 0;
-    t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-    t->setMaximumAnisotropy(16);
-    t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                               QOpenGLTexture::Linear);
-    t->setWrapMode(QOpenGLTexture::ClampToEdge);
-    t->setData(*m_image);
-    return m_image->size().width() * m_image->size().height() * 4; // rgba8
+
 }
 #else
 quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 {
-    if (!m_mips.size())
-        return 0;
+    if (!NetworkConfiguration::astcEnabled || !m_mips.size()) {
+        if (!m_image)
+            return 0;
+        t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+        t->setMaximumAnisotropy(16);
+        t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                                   QOpenGLTexture::Linear);
+        t->setWrapMode(QOpenGLTexture::ClampToEdge);
+        t->setData(*m_image);
+        return m_image->size().width() * m_image->size().height() * 4; // rgba8
+    } else {
+        if (!m_mips.size())
+            return 0;
+        const int maxLod = m_mips.size() - 1;
 
-    t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-    t->setAutoMipMapGenerationEnabled(false);
-    t->setFormat(m_glFormat);
-    t->setMaximumAnisotropy(16);
-    t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                               QOpenGLTexture::Linear);
-    t->setWrapMode(QOpenGLTexture::ClampToEdge);
+        t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+        t->setAutoMipMapGenerationEnabled(false);
+        t->setMaximumAnisotropy(16);
+        t->setMipMaxLevel(maxLod);
+        t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                                   QOpenGLTexture::Linear);
+        t->setWrapMode(QOpenGLTexture::ClampToEdge);
 
-    int maxLod = m_mips.size() - 1;
-    maxLod = 0;
-    t->setMipMaxLevel(maxLod);
 
-    quint64 sz{0};
-    for (int i  = 0; i <= maxLod; ++i) {
-        t->setCompressedData(i, m_mips.at(i).size(), m_mips.at(i).constData());
-        sz += m_mips.at(i).size();
+        t->setFormat(QOpenGLTexture::TextureFormat(m_mips.at(0).glInternalFormat()));
+        t->setSize(m_mips.at(0).size().width(), m_mips.at(0).size().height());
+        t->setMipLevels(m_mips.size());
+        t->allocateStorage();
+
+        QOpenGLPixelTransferOptions uploadOptions;
+        uploadOptions.setAlignment(1);
+
+        quint64 sz{0};
+        for (int i  = 0; i <= maxLod; ++i) {
+            t->setCompressedData(i,
+                                 m_mips.at(i).dataLength(),
+                                 m_mips.at(i).data().constData() + m_mips.at(i).dataOffset(),
+                                 &uploadOptions);
+            sz += m_mips.at(i).dataLength();
+        }
+
+        return sz; // astc
     }
-
-    return sz; // astc
 }
 #endif
 QSize ASTCCompressedTextureData::size() const
@@ -2069,25 +2288,22 @@ QSize ASTCCompressedTextureData::size() const
     return QSize();
 }
 
-std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage(const std::shared_ptr<QImage> &i)
+std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage(
+        const std::shared_ptr<QImage> &i)
 {
     std::shared_ptr<ASTCCompressedTextureData> res = std::make_shared<ASTCCompressedTextureData>();
     res->m_image = std::make_shared<QImage>(i->mirrored(false, true));
 
+    if (!NetworkConfiguration::astcEnabled)
+        return res;
 
     QSize size(i->width(), i->height());
     if (!isEven(size)) {
         qWarning() << "Warning: cannot generate mips for size"<<size;
     }
 
-    // Generate mips
-    res->m_mips.emplace_back(ASTCEncoder::instance().compress(*res->m_image));
-    QImage halved = *res->m_image;
-    do {
-        halved = ASTCEncoder::halve(halved);
-        res->m_mips.emplace_back(ASTCEncoder::instance().compress(halved));
-    } while (isEven(halved.size()));
-    res->m_glFormat = ASTCEncoder::instance().astcFormat();
+    ASTCEncoder::instance().generateMips(*res->m_image, res->m_mips);
+
     return res;
 }
 
