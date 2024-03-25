@@ -20,14 +20,9 @@ QMAKE_CXXFLAGS += "-fno-sized-deallocation"
 INCLUDEPATH += $$PWD/astc-encoder
 
 #Input
-HEADERS +=  mapfetcher.h \
-            mapfetcher_p.h \
-            networksqlitecache_p.h \
-            astccache_p.h
+HEADERS +=  $$files(*.h)
 
-SOURCES += mapfetcher.cpp \
-    networksqlitecache.cpp \
-    astccache.cpp
+SOURCES += $$files(*.cpp)
 
 # TODO: figure proper compilesettings to build these
 # in order to enable all optimizations/hw acceleration

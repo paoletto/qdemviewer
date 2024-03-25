@@ -21,7 +21,7 @@
 #include "mapfetcher.h"
 #include "mapfetcher_p.h"
 #include "networksqlitecache_p.h"
-#include "astccache_p.h"
+#include "tilecache_p.h"
 
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtLocation/private/qgeocameratiles_p_p.h>

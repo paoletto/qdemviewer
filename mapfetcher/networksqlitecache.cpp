@@ -69,7 +69,7 @@ NetworkSqliteCache::NetworkSqliteCache(const QString &sqlitePath, QObject *paren
         return;
     }
 
-    qDebug () << "Opened "<<m_diskCache.databaseName() << m_diskCache.isOpen() << m_diskCache.lastError();
+    qDebug () << "NetworkSqliteCache: Opened "<<m_diskCache.databaseName() << m_diskCache.isOpen() << m_diskCache.lastError();
 
     static constexpr char schema[] = R"(
 CREATE TABLE IF NOT EXISTS Document (
@@ -173,11 +173,12 @@ QIODevice *NetworkSqliteCache::data(const QUrl &url) {
 }
 
 bool NetworkSqliteCache::remove(const QUrl &/*url*/) {
-    return false; // Currently removing from cache not supported.
+    //TODO: fixme, Currently removing from cache not supported.
+    return false;
 }
 
 qint64 NetworkSqliteCache::cacheSize() const {
-    return 1234; // TODO FixMe
+    return QFileInfo(m_sqlitePath).size();
 }
 
 void NetworkSqliteCache::insert(QIODevice *device) {

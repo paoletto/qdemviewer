@@ -18,8 +18,8 @@
 **
 ****************************************************************************/
 
-#ifndef ASTCCACHE_P
-#define ASTCCACHE_P
+#ifndef TILECACHE_P
+#define TILECACHE_P
 
 #include <QtSql/QSqlDatabase>
 #include <QSqlDatabase>
@@ -33,6 +33,47 @@
 #include <QBuffer>
 #include <QDebug>
 #include <QDataStream>
+#include <QImage>
+
+class CompoundTileCache {
+public:
+    CompoundTileCache(const QString &sqlitePath, bool storeUncompressed = true);
+    virtual ~CompoundTileCache();
+
+    bool insert(const QString &tileBaseURL,
+                int x,
+                int y,
+                int sourceZoom,
+                int destinationZoom,
+                const QImage &tile);
+
+    QImage tile(const QString &tileBaseURL,
+                    int x,
+                    int y,
+                    int sourceZoom,
+                    int destinationZoom);
+
+    QByteArray tileMD5(const QString &tileBaseURL,
+                    int x,
+                    int y,
+                    int sourceZoom,
+                    int destinationZoom);
+
+    quint64 size() const;
+
+protected:
+    QString m_sqlitePath;
+    bool m_storeUncompressed;
+    // DBs
+    QSqlDatabase m_diskCache;
+
+    // Queries
+    QSqlQuery m_queryCreation;
+    QSqlQuery m_queryFetchData;
+    QSqlQuery m_queryFetchHash;
+    QSqlQuery m_queryInsertData;
+    bool m_initialized{false};
+};
 
 class ASTCCache {
 public:
@@ -62,7 +103,7 @@ protected:
     QSqlDatabase m_diskCache;
 
     // Queries
-    QSqlQuery m_queryCreation; // Used for creation. can't be prepared, since QtSql does not allow multiple statements with sqlite3
+    QSqlQuery m_queryCreation;
     QSqlQuery m_queryFetchData;
     QSqlQuery m_queryInsertData;
     bool m_initialized{false};
