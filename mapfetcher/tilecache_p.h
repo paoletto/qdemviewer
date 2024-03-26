@@ -35,16 +35,33 @@
 #include <QDataStream>
 #include <QImage>
 
+QByteArray md5QImage(const QImage &i);
+
 class CompoundTileCache {
 public:
-    CompoundTileCache(const QString &sqlitePath, bool storeUncompressed = true);
-    virtual ~CompoundTileCache();
+
+    static CompoundTileCache& instance()
+    {
+        static thread_local CompoundTileCache instance;
+        return instance;
+    }
+
+    CompoundTileCache(CompoundTileCache const&) = delete;
+    void operator=(CompoundTileCache const&) = delete;
 
     bool insert(const QString &tileBaseURL,
                 int x,
                 int y,
                 int sourceZoom,
                 int destinationZoom,
+                const QImage &tile);
+
+    bool insert(const QString &tileBaseURL,
+                int x,
+                int y,
+                int sourceZoom,
+                int destinationZoom,
+                const QByteArray &md5,
                 const QImage &tile);
 
     QImage tile(const QString &tileBaseURL,
@@ -59,11 +76,21 @@ public:
                     int sourceZoom,
                     int destinationZoom);
 
+    QPair<QByteArray, QImage> tileRecord(const QString &tileBaseURL,
+                                            int x,
+                                            int y,
+                                            int sourceZoom,
+                                            int destinationZoom);
+
     quint64 size() const;
+    bool initialized() const { return m_initialized; }
+    static QString cachePath();
+    static quint64 cacheSize();
 
 protected:
+    CompoundTileCache();
+
     QString m_sqlitePath;
-    bool m_storeUncompressed;
     // DBs
     QSqlDatabase m_diskCache;
 
@@ -71,6 +98,7 @@ protected:
     QSqlQuery m_queryCreation;
     QSqlQuery m_queryFetchData;
     QSqlQuery m_queryFetchHash;
+    QSqlQuery m_queryFetchBoth;
     QSqlQuery m_queryInsertData;
     bool m_initialized{false};
 };

@@ -22,6 +22,7 @@
 #include <QFileInfo>
 #include <QRandomGenerator>
 #include <QCryptographicHash>
+#include <QStandardPaths>
 
 namespace {
 static QString randomString(int length)
@@ -148,8 +149,11 @@ quint64 ASTCCache::size() const
     return fi.size();
 }
 
-CompoundTileCache::CompoundTileCache(const QString &sqlitePath, bool storeUncompressed)
-    : m_sqlitePath(sqlitePath), m_storeUncompressed(storeUncompressed) {
+CompoundTileCache::CompoundTileCache()
+    : m_sqlitePath(cachePath()) {
+    if (m_sqlitePath.isEmpty())
+        return;
+
     QFileInfo fi(m_sqlitePath);
     if (!fi.dir().exists() && !QDir::root().mkpath(fi.dir().path())) {
         qWarning() << "ASTCCache QDir::root().mkpath " << fi.dir().path() << " Failed";
@@ -159,13 +163,13 @@ CompoundTileCache::CompoundTileCache(const QString &sqlitePath, bool storeUncomp
     // Create the database if not present and open
     QString connectionName = randomString(6);
     m_diskCache = QSqlDatabase::addDatabase("QSQLITE", connectionName);
-    m_diskCache.setDatabaseName(sqlitePath);
+    m_diskCache.setDatabaseName(m_sqlitePath);
     if (!m_diskCache.open()) {
         qWarning("Impossible to create the SQLITE database for the cache");
         return;
     }
 
-    qDebug () << "CompoundTileCache: Opened "<<m_diskCache.databaseName() << m_diskCache.isOpen() << m_diskCache.lastError();
+    qDebug () << "CompoundTileCache("<< QThread::currentThread()->objectName() <<"): Opened "<<m_diskCache.databaseName() << m_diskCache.isOpen() << m_diskCache.lastError();
 
     static constexpr char schema[] = R"(
     CREATE TABLE IF NOT EXISTS Tile (
@@ -202,6 +206,15 @@ CompoundTileCache::CompoundTileCache(const QString &sqlitePath, bool storeUncomp
     if (!res)
         qWarning() << "Failed to prepare  m_queryFetchHash"  << m_queryFetchHash.lastError() <<  __FILE__ << __LINE__;
 
+    m_queryFetchBoth = QSqlQuery(m_diskCache);
+    m_queryFetchBoth.setForwardOnly(true);
+    res = m_queryFetchBoth.prepare(QStringLiteral(
+        "SELECT md5, tile FROM Tile WHERE baseURL = :baseUrl "
+        "AND x = :x AND y = :y AND z = :z AND dz = :dz"));
+    if (!res)
+        qWarning() << "Failed to prepare  m_queryFetchHash"  << m_queryFetchBoth.lastError() <<  __FILE__ << __LINE__;
+
+
     m_queryInsertData = QSqlQuery(m_diskCache);
     m_queryInsertData.setForwardOnly(true);
     res = m_queryInsertData.prepare(QStringLiteral(
@@ -213,8 +226,6 @@ CompoundTileCache::CompoundTileCache(const QString &sqlitePath, bool storeUncomp
     m_initialized = true;
 }
 
-CompoundTileCache::~CompoundTileCache() {}
-
 bool CompoundTileCache::insert(const QString &tileBaseURL,
                                int x,
                                int y,
@@ -222,12 +233,27 @@ bool CompoundTileCache::insert(const QString &tileBaseURL,
                                int destinationZoom,
                                const QImage &tile)
 {
+    if (!m_initialized)
+        return false;
+
+    return insert(tileBaseURL, x, y, sourceZoom, destinationZoom, md5QImage(tile), tile);
+}
+
+bool CompoundTileCache::insert(const QString &tileBaseURL,
+                               int x,
+                               int y,
+                               int sourceZoom,
+                               int destinationZoom,
+                               const QByteArray &md5,
+                               const QImage &tile)
+{
+    if (!m_initialized)
+        return false;
+
     QByteArray data;
     QBuffer buffer(&data);
     buffer.open(QIODevice::WriteOnly);
     tile.save(&buffer, "PNG", 0);
-
-    const QByteArray md5 = QCryptographicHash::hash(data, QCryptographicHash::Md5);
 
     m_queryInsertData.bindValue(0, tileBaseURL);
     m_queryInsertData.bindValue(1, x);
@@ -236,6 +262,7 @@ bool CompoundTileCache::insert(const QString &tileBaseURL,
     m_queryInsertData.bindValue(4, destinationZoom);
     m_queryInsertData.bindValue(5, md5);
     m_queryInsertData.bindValue(6, data);
+
 
     if (!m_queryInsertData.exec()) {
         qDebug() << m_queryInsertData.lastError() <<  __FILE__ << __LINE__;
@@ -250,6 +277,9 @@ QImage CompoundTileCache::tile(const QString &tileBaseURL,
                                    int sourceZoom,
                                    int destinationZoom)
 {
+    if (!m_initialized)
+        return {};
+
     m_queryFetchData.bindValue(0, tileBaseURL);
     m_queryFetchData.bindValue(1, x);
     m_queryFetchData.bindValue(2, y);
@@ -274,6 +304,8 @@ QImage CompoundTileCache::tile(const QString &tileBaseURL,
 
 QByteArray CompoundTileCache::tileMD5(const QString &tileBaseURL, int x, int y, int sourceZoom, int destinationZoom)
 {
+    if (!m_initialized)
+        return {};
     m_queryFetchHash.bindValue(0, tileBaseURL);
     m_queryFetchHash.bindValue(1, x);
     m_queryFetchHash.bindValue(2, y);
@@ -286,12 +318,60 @@ QByteArray CompoundTileCache::tileMD5(const QString &tileBaseURL, int x, int y, 
     }
 
     if (m_queryFetchHash.first())
-        return m_queryFetchData.value(0).toByteArray();
+        return m_queryFetchHash.value(0).toByteArray();
+    return {};
+}
+
+QPair<QByteArray, QImage> CompoundTileCache::tileRecord(const QString &tileBaseURL, int x, int y, int sourceZoom, int destinationZoom)
+{
+    if (!m_initialized)
+        return {};
+
+    m_queryFetchBoth.bindValue(0, tileBaseURL);
+    m_queryFetchBoth.bindValue(1, x);
+    m_queryFetchBoth.bindValue(2, y);
+    m_queryFetchBoth.bindValue(3, sourceZoom);
+    m_queryFetchBoth.bindValue(4, destinationZoom);
+
+    if (!m_queryFetchBoth.exec()) {
+        qDebug() << m_queryFetchBoth.lastError() <<  __FILE__ << __LINE__;
+        return {};
+    }
+
+    if (m_queryFetchBoth.first()) {
+        auto md5 = m_queryFetchBoth.value(0).toByteArray();
+        auto imageData = m_queryFetchBoth.value(1).toByteArray();
+        QBuffer buffer(&imageData);
+        buffer.open(QIODevice::ReadOnly);
+        QImage ima;
+        ima.load(&buffer, "PNG");
+        return QPair<QByteArray, QImage>(md5, ima);
+    }
     return {};
 }
 
 quint64 CompoundTileCache::size() const
 {
+    if (!m_initialized)
+        return 0;
     QFileInfo fi(m_sqlitePath);
     return fi.size();
+}
+
+QString CompoundTileCache::cachePath()
+{
+    return QStringLiteral("%1/compoundCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation));
+}
+
+quint64 CompoundTileCache::cacheSize()
+{
+    QFileInfo fi(cachePath());
+    return fi.size();
+}
+
+QByteArray md5QImage(const QImage &i)
+{
+    QCryptographicHash h(QCryptographicHash::Md5);
+    h.addData(reinterpret_cast<const char *>(i.constBits()), i.sizeInBytes());
+    return h.result();
 }

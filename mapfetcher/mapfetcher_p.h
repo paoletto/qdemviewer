@@ -22,12 +22,14 @@
 #define MAPFETCHER_P_H
 
 #include "mapfetcher.h"
+#include "tilecache_p.h"
 
 #include <QtCore/private/qobject_p.h>
 #include <QQueue>
 #include <QThread>
 #include <QTimer>
 #include <QCoreApplication>
+#include <QtLocation/private/qgeotilespec_p.h>
 #include <unordered_map>
 #include <map>
 #include <set>
@@ -42,6 +44,16 @@ using TileNeighborsMap = std::map<TileKey,
 using TileCache = std::map<TileKey, std::shared_ptr<QImage>>;
 using TileCacheCache = std::map<TileKey, std::set<TileData>>;
 using TileCacheASTC = std::map<TileKey, std::shared_ptr<CompressedTextureData>>;
+
+//struct GeoTileSpec {
+//    QGeoTileSpec ts;
+//    Heightmap::Neighbors nb;
+
+//    bool operator == (const GeoTileSpec &rhs) const;
+//    bool operator < (const GeoTileSpec &rhs) const;
+//};
+
+//QDebug operator<<(QDebug d, const GeoTileSpec &k);
 
 class ThreadedJob : public QObject
 {
@@ -184,7 +196,7 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
     quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
     QSize size() const override;
 
-    static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i);
+    static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i, QByteArray md5);
 
     std::shared_ptr<QImage> m_image;
     std::vector<QTextureFileData> m_mips;
@@ -219,7 +231,11 @@ class MapFetcherWorker : public QObject {
     Q_OBJECT
 
 public:
-    MapFetcherWorker(QObject *parent, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker);
+    MapFetcherWorker(QObject *parent
+                     ,MapFetcher *f
+                     ,QSharedPointer<ThreadedJobQueue> worker
+//                     ,bool emitHashes = false
+                    );
     ~MapFetcherWorker() override = default;
 
     void requestSlippyTiles(quint64 requestId,
@@ -239,14 +255,14 @@ public:
     void setURLTemplate(const QString &urlTemplate);
 
 signals:
-    void tileReady(quint64 id, const TileKey k, std::shared_ptr<QImage>);
+    void tileReady(quint64 id, const TileKey k, std::shared_ptr<QImage>, QByteArray md5 = {});
     void coverageReady(quint64 id, std::shared_ptr<QImage>);
     void requestHandlingFinished(quint64 id);
 
 protected slots:
     void onTileReplyFinished();
     void onTileReplyForCoverageFinished();
-    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
+    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i, QByteArray md5);
     void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
     void networkReplyError(QNetworkReply::NetworkError);
 
@@ -264,7 +280,7 @@ class MapFetcherWorkerPrivate :  public QObjectPrivate
     Q_DECLARE_PUBLIC(MapFetcherWorker)
 
 public:
-    MapFetcherWorkerPrivate() :  QObjectPrivate() {}
+    MapFetcherWorkerPrivate() = default;
     ~MapFetcherWorkerPrivate() override = default;
 
     std::shared_ptr<QImage> tile(quint64 requestId, const TileKey &k);
@@ -289,6 +305,10 @@ public:
     MapFetcher *m_fetcher{nullptr};
     std::unordered_map<quint64, quint64> m_request2remainingTiles;
     std::unordered_map<quint64, quint64> m_request2remainingHandlers;
+    std::unordered_map<quint64, QString> m_request2urlTemplate;
+    std::unordered_map<quint64, quint64> m_request2sourceZoom;
+    QString m_diskCachePath;
+
     const QImage m_empty;
 };
 
@@ -355,7 +375,7 @@ signals:
     void coverageASTCReady(quint64 id, std::shared_ptr<CompressedTextureData>);
 
 protected slots:
-    void onTileReady(quint64 id, const TileKey k,  std::shared_ptr<QImage> i);
+    void onTileReady(quint64 id, const TileKey k,  std::shared_ptr<QImage> i, QByteArray md5);
     void onCoverageReady(quint64 id,  std::shared_ptr<QImage> i);
     void onInsertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> h);
     void onInsertCoverageASTC(quint64 id, std::shared_ptr<CompressedTextureData> h);
@@ -385,7 +405,7 @@ class NetworkIOManager: public QObject //living in a separate thread
     Q_OBJECT
 
 public:
-    NetworkIOManager();
+    NetworkIOManager() = default;
     ~NetworkIOManager() override = default;
 
 public slots:
@@ -606,19 +626,48 @@ public:
     ~TileReplyHandler() override = default;
 
 signals:
-    void insertTile(quint64 id,TileKey k, std::shared_ptr<QImage> i);
+    void insertTile(quint64 id, TileKey k, std::shared_ptr<QImage> i, QByteArray md5 = {});
     void insertCoverage(quint64 id, std::shared_ptr<QImage> i);
     void expectingMoreSubtiles();
 
 public slots:
     void process() override;
 
-private:
+protected:
     void processStandaloneTile();
     void processCoverageTile();
     void finalizeCoverageRequest(quint64 id);
 
     QNetworkReply *m_reply{nullptr};
+    MapFetcherWorker *m_mapFetcher{nullptr};
+    bool m_computeHash{true};
+};
+
+class CachedCompoundTileHandler : public ThreadedJob
+{
+    Q_OBJECT
+public:
+    CachedCompoundTileHandler(quint64 id,
+                              TileKey k,
+                              quint8 sourceZoom,
+                              QByteArray md5,
+                              QString urlTemplate,
+                              MapFetcherWorker &mapFetcher);
+    ~CachedCompoundTileHandler() override = default;
+    int priority() const override;
+
+signals:
+    void tileReady(quint64 id, TileKey k, std::shared_ptr<QImage> i, QByteArray md5);
+
+public slots:
+    void process() override;
+
+protected:
+    quint64 m_id;
+    TileKey m_key;
+    quint8 m_sourceZoom;
+    QByteArray m_md5;
+    QString m_urlTemplate;
     MapFetcherWorker *m_mapFetcher{nullptr};
 };
 
@@ -673,7 +722,8 @@ public:
                     const TileKey k,
                     ASTCFetcherWorker &fetcher,
                     quint64 id,
-                    bool coverage);
+                    bool coverage,
+                    QByteArray md5);
 
     ~Raster2ASTCHandler() override = default;
     const TileKey &tileKey() const {
@@ -694,6 +744,7 @@ private:
     quint64 m_requestId{0};
     bool m_coverage;
     TileKey m_key;
+    QByteArray m_md5;
 };
 
 #endif

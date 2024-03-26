@@ -152,9 +152,10 @@ public:
                                   const size_t tileResolution,
                                   const size_t maxCoverageResolution);
 
-    static quint64 cacheSize();
-
-    static QString cachePath();
+    static quint64 networkCacheSize();
+    static QString networkCachePath();
+    static QString compoundTileCachePath();
+    static quint64 compoundTileCacheSize();
 
 signals:
     void tileReady(quint64 id, const TileKey k);

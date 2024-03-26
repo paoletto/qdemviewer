@@ -1127,19 +1127,19 @@ int main(int argc, char *argv[])
     fmt.setProfile(QSurfaceFormat::CoreProfile);
     QSurfaceFormat::setDefaultFormat(fmt);
 
-#ifdef Q_OS_LINUX
-    qint64 pid = QCoreApplication::applicationPid();
-    QProcess process;
-    process.setProgram(QLatin1String("prlimit"));
-    process.setArguments(QStringList() << "--pid" << QString::number(pid) << "--nofile=1048576");
-    process.setStandardOutputFile(QProcess::nullDevice());
-    process.setStandardErrorFile(QProcess::nullDevice());
-    if (!process.startDetached(&pid)) {
-        QLoggingCategory category("qmldebug");
-        qCInfo(category) << QCoreApplication::applicationName()
-                         <<": failed prlimit";
-    }
-#endif
+//#ifdef Q_OS_LINUX
+//    qint64 pid = QCoreApplication::applicationPid();
+//    QProcess process;
+//    process.setProgram(QLatin1String("prlimit"));
+//    process.setArguments(QStringList() << "--pid" << QString::number(pid) << "--nofile=1048576");
+//    process.setStandardOutputFile(QProcess::nullDevice());
+//    process.setStandardErrorFile(QProcess::nullDevice());
+//    if (!process.startDetached(&pid)) {
+//        QLoggingCategory category("qmldebug");
+//        qCInfo(category) << QCoreApplication::applicationName()
+//                         <<": failed prlimit";
+//    }
+//#endif
 
     QGuiApplication app(argc, argv);
 
@@ -1169,7 +1169,8 @@ int main(int argc, char *argv[])
             QCoreApplication::exit(-1);
     }, Qt::QueuedConnection);
 
-    qDebug() << "Network cache dir: " << MapFetcher::cachePath();
+    qDebug() << "Network cache dir: " << MapFetcher::networkCachePath();
+    qDebug() << "Compound tile cache dir: " << MapFetcher::compoundTileCachePath();
 
     engine.load(url);
     QThread::currentThread()->setObjectName("Main Thread");
