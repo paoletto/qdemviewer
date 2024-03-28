@@ -82,6 +82,8 @@ public:
                                             int sourceZoom,
                                             int destinationZoom);
 
+    QString lockStatus();
+
     quint64 size() const;
     bool initialized() const { return m_initialized; }
     static QString cachePath();
@@ -100,6 +102,7 @@ protected:
     QSqlQuery m_queryFetchHash;
     QSqlQuery m_queryFetchBoth;
     QSqlQuery m_queryInsertData;
+    QSqlQuery m_queryLockStatus;
     bool m_initialized{false};
 };
 
@@ -123,6 +126,8 @@ public:
                     int width,
                     int height);
 
+    bool contains(const QByteArray &tileHash, int blockX, int blockY, float quality);
+
     quint64 size() const;
 
 protected:
@@ -134,6 +139,7 @@ protected:
     QSqlQuery m_queryCreation;
     QSqlQuery m_queryFetchData;
     QSqlQuery m_queryInsertData;
+    QSqlQuery m_queryHasData;
     bool m_initialized{false};
 };
 

@@ -114,6 +114,7 @@ struct CompressedTextureData {
 
     virtual quint64 upload(QSharedPointer<QOpenGLTexture> &) = 0;
     virtual QSize size() const = 0;
+    virtual bool hasCompressedData() const = 0;
 };
 
 class MapFetcherPrivate;
@@ -144,7 +145,7 @@ public:
     std::shared_ptr<QImage> tile(quint64 id, const TileKey k);
     std::shared_ptr<QImage> tileCoverage(quint64 id);
 
-    Q_INVOKABLE void setURLTemplate(const QString &urlTemplate);
+    void setURLTemplate(const QString &urlTemplate);
     QString urlTemplate() const;
 
     static quint8 zoomForCoverage(const QGeoCoordinate &ctl,
@@ -164,7 +165,7 @@ signals:
     void requestHandlingFinished(quint64 id);
 
 protected slots:
-    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
+    virtual void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
     void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
 
 protected:
@@ -213,6 +214,10 @@ class ASTCFetcher : public MapFetcher {
     Q_DECLARE_PRIVATE(ASTCFetcher)
     Q_OBJECT
 
+    Q_PROPERTY(bool forwardUncompressedTiles
+               READ forwardUncompressedTiles
+               WRITE setForwardUncompressedTiles
+               NOTIFY forwardUncompressedTilesChanged)
 public:
     ASTCFetcher(QObject *parent);
     ~ASTCFetcher() override = default;
@@ -220,7 +225,14 @@ public:
     std::shared_ptr<CompressedTextureData> tile(quint64 id, const TileKey k);
     std::shared_ptr<CompressedTextureData> tileCoverage(quint64 id);
 
+    void setForwardUncompressedTiles(bool enabled);
+    const QAtomicInt &forwardUncompressedTiles() const;
+
+signals:
+    void forwardUncompressedTilesChanged(bool enabled);
+
 protected slots:
+    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) override;
     void onInsertASTCTile(const quint64 id,
                           const TileKey k,
                           std::shared_ptr<CompressedTextureData> i);

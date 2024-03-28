@@ -582,8 +582,14 @@ ASTCFetcherWorker *NetworkIOManager::getASTCFetcherWorker(ASTCFetcher *f) {
     auto it = m_astcFetcher2Worker.find(f);
     if (it == m_astcFetcher2Worker.end()) {
         init();
-        w = new ASTCFetcherWorker(this, f, m_worker);
+        if (!m_workerASTC)
+            m_workerASTC = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue);
+        w = new ASTCFetcherWorker(this, f, m_worker, m_workerASTC);
         m_astcFetcher2Worker.insert({f, w});
+        connect(w,
+                &MapFetcherWorker::tileReady,
+                f,
+                &ASTCFetcher::onInsertTile, Qt::QueuedConnection); // onInsertTile is overridden in ASTCFetcher
         connect(w,
                 &ASTCFetcherWorker::tileASTCReady,
                 f,
@@ -754,8 +760,6 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
                                                 zoom,
                                                 destinationZoom);
                 if (data.size()) {
-                    qDebug() << "SCheduling handler for compound tile "<<dt.ts.x()<<" "<<dt.ts.y()<<" "<<zoom<<" "<<destinationZoom;
-
                     cachedCompoundTileHandlers.push_back(new CachedCompoundTileHandler(
                                                                requestId
                                                              , {quint64(dt.ts.x()), quint64(dt.ts.y()), destinationZoom}
@@ -763,16 +767,8 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
                                                              , std::move(data)
                                                              , urlTemplate
                                                              , *this));
-//                    emit tileReady(requestId,
-//                                   {quint64(dt.ts.x()), quint64(dt.ts.y()), destinationZoom},
-//                                   std::make_shared<QImage>(std::move(data.second)),
-//                                   std::move(data.first));
-//                    if (af)
-//                        ++af->d_func()->m_request2remainingASTCHandlers[requestId];
                     --srcTilesSize;
                     continue;
-                } else {
-                    qDebug() << "No cached compound tile for "<<dt.ts.x()<<" "<<dt.ts.y()<<" "<<zoom<<" "<<destinationZoom;
                 }
             }
 
@@ -819,7 +815,6 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId, const QGeoCoordinat
                     this, SLOT(onTileReplyFinished()),
                     this, SLOT(networkReplyError(QNetworkReply::NetworkError)));
 
-    qDebug() << "Scheduling compound handlers: "<<cachedCompoundTileHandlers.size();
     for(auto h: cachedCompoundTileHandlers)
         d->m_worker->schedule(h);
 }
@@ -1008,14 +1003,33 @@ QString MapFetcherWorkerPrivate::objectName() const {
 
 ASTCFetcherWorker::ASTCFetcherWorker(QObject *parent,
                                      ASTCFetcher *f,
-                                     QSharedPointer<ThreadedJobQueue> worker)
+                                     QSharedPointer<ThreadedJobQueue> worker,
+                                     QSharedPointer<ThreadedJobQueue> workerASTC)
 :   MapFetcherWorker(*new ASTCFetcherWorkerPrivate, f, worker, parent)
 {
+    Q_D(ASTCFetcherWorker);
     init();
+    d->m_forwardUncompressed = f->forwardUncompressedTiles();
+    d->m_workerASTC = std::move(workerASTC);
+}
+
+void ASTCFetcherWorker::setForwardUncompressed(bool enabled)
+{
+    Q_D(ASTCFetcherWorker);
+    d->m_forwardUncompressed = enabled;
+}
+
+bool ASTCFetcherWorker::forwardUncompressed() const
+{
+    Q_D(const ASTCFetcherWorker);
+    return d->m_forwardUncompressed;
 }
 
 void ASTCFetcherWorker::init()
 {
+    Q_D(ASTCFetcherWorker);
+    connect(qobject_cast<ASTCFetcher *>(d->m_fetcher), &ASTCFetcher::forwardUncompressedTilesChanged,
+            this, &ASTCFetcherWorker::setForwardUncompressed, Qt::QueuedConnection);
     connect(this, &MapFetcherWorker::tileReady, this, &ASTCFetcherWorker::onTileReady);
     connect(this, &MapFetcherWorker::coverageReady, this, &ASTCFetcherWorker::onCoverageReady);
 }
@@ -1026,14 +1040,13 @@ void ASTCFetcherWorker::onTileReady(quint64 id,
                                     QByteArray md5)
 {
     Q_D(ASTCFetcherWorker);
-    qDebug() << "ASTCFetcherWorker::onTileReady";
     auto h = new Raster2ASTCHandler(i,
                                  k,
                                  *this,
                                  id,
                                  false,
                                  std::move(md5));
-    d->m_worker->schedule(h);
+    d->m_workerASTC->schedule(h);
 }
 
 void ASTCFetcherWorker::onCoverageReady(quint64 id,
@@ -1046,7 +1059,7 @@ void ASTCFetcherWorker::onCoverageReady(quint64 id,
                                  id,
                                  true,
                                  {});
-    d->m_worker->schedule(h);
+    d->m_workerASTC->schedule(h);
 }
 
 void ASTCFetcherWorker::onInsertTileASTC(quint64 id,

@@ -23,6 +23,18 @@
 #include <QRandomGenerator>
 
 namespace {
+class ScopeExit {
+public:
+    ScopeExit(std::function<void()> callback)
+        : callback_{ callback }
+    {}
+    ~ScopeExit()
+    {
+        callback_();
+    }
+private:
+    std::function<void()> callback_;
+};
 static QString randomString(int length)
 {
    const QString possibleCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
@@ -117,6 +129,7 @@ CREATE TABLE IF NOT EXISTS Document (
 NetworkSqliteCache::~NetworkSqliteCache() {}
 
 QNetworkCacheMetaData NetworkSqliteCache::metaData(const QUrl &url) {
+    ScopeExit releaser([this]() {m_queryFetchData.finish();});
     m_queryFetchData.bindValue(0, url);
     if (!m_queryFetchData.exec()) {
         qDebug() << m_queryFetchData.lastError() <<  __FILE__ << __LINE__;
@@ -139,7 +152,7 @@ QNetworkCacheMetaData NetworkSqliteCache::metaData(const QUrl &url) {
 void NetworkSqliteCache::updateMetaData(const QNetworkCacheMetaData &metaData) {
     if (!contains(metaData.url()))
         return;
-
+    ScopeExit releaser([this]() {m_queryUpdateMetadata.finish();});
     QBuffer metadata;
     metadata.open(QBuffer::ReadWrite);
     QDataStream out(&metadata);
@@ -156,6 +169,7 @@ void NetworkSqliteCache::updateMetaData(const QNetworkCacheMetaData &metaData) {
 }
 
 QIODevice *NetworkSqliteCache::data(const QUrl &url) {
+    ScopeExit releaser([this]() {m_queryFetchData.finish();});
     m_queryFetchData.bindValue(0, url);
     if (!m_queryFetchData.exec()) {
         qDebug() << m_queryFetchData.lastError() <<  __FILE__ << __LINE__;
@@ -200,6 +214,7 @@ void NetworkSqliteCache::insert(QIODevice *device) {
 
     QSqlQuery *q = (contains(url)) ? &m_queryUpdateData : &m_queryInsertData;
 
+    ScopeExit releaser([q]() {q->finish();});
     // Fire insert query
     q->bindValue(0, /* metadata */ metadata.buffer());
     q->bindValue(1, /* data */ buffer->buffer());
@@ -214,6 +229,7 @@ void NetworkSqliteCache::clear() {
 }
 
 bool NetworkSqliteCache::contains(const QUrl &url) {
+    ScopeExit releaser([this]() {m_queryCheckUrl.finish();});
     m_queryCheckUrl.bindValue(0, url);
     if (!m_queryCheckUrl.exec()) {
         qDebug() << m_queryCheckUrl.lastError() <<  __FILE__ << __LINE__;

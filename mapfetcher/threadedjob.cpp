@@ -280,6 +280,7 @@ public:
                                                quality,
                                                size.width(),
                                                size.height());
+        QImage halved;
         if (cached.size()) {
             out.push_back(fromCached(cached));
 
@@ -293,9 +294,31 @@ public:
                                            quality,
                                            size.width(),
                                            size.height());
-                if (!cached.size())
-                    break;
-                out.push_back(fromCached(cached));
+                if (!cached.size()) { // generateMips was probably aborted during operation. Recover the missing mips
+                    halved = ima;
+                    QByteArray next;
+                    while (isEven(halved.size()) && halved.size().width() > size.width()) {
+                        halved = ASTCEncoder::halve(halved);
+                    }
+                    while (isEven(halved.size())) {
+                        if (halved.size().width() < ASTCEncoder::blockSize())
+                            break;
+                        QByteArray compressed = ASTCEncoder::instance().compress(halved).data();
+                        if (!next.size())
+                            next = compressed;
+                        m_tileCache.insert(md5,
+                                           block_x,
+                                           block_y,
+                                           quality,
+                                           halved.size().width(),
+                                           halved.size().height(),
+                                           compressed);
+                        halved = ASTCEncoder::halve(halved);
+                    }
+                    out.push_back(fromCached(next));
+                } else {
+                    out.push_back(fromCached(cached));
+                }
             }
         } else {
             out.emplace_back(ASTCEncoder::instance().compress(ima));
@@ -306,7 +329,7 @@ public:
                                size.width(),
                                size.height(),
                                out.back().data());
-            QImage halved = ima;
+            halved = ima;
             while (isEven(size)) {
                 size = QSize(size.width() / 2, size.height() / 2);
                 if (size.width() < ASTCEncoder::blockSize())
@@ -322,6 +345,10 @@ public:
                                    out.back().data());
             }
         }
+    }
+
+    bool isCached(const QByteArray &md5) {
+        return m_tileCache.contains(md5, block_x, block_y, quality);
     }
 
 private:
@@ -410,8 +437,8 @@ bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJob *l, const Thr
 }
 
 ThreadedJobQueue::ThreadedJobQueue(QObject *parent): QObject(parent) {
-    connect(&m_thread, &QThread::finished,
-            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
+//    connect(&m_thread, &QThread::finished,
+//            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
     m_thread.setObjectName("ThreadedJobQueue Thread");
 }
 
@@ -426,27 +453,33 @@ void ThreadedJobQueue::schedule(ThreadedJob *handler) {
     }
 
     handler->move2thread(m_thread);
-    connect(handler, &ThreadedJob::finished, &m_thread, &QThread::quit);
+//    connect(handler, &ThreadedJob::finished, &m_thread, &QThread::quit);
+    connect(handler, &ThreadedJob::finished,
+            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
     m_jobs.push(handler);
 
-    if (!m_thread.isRunning()) {
+    if (!m_currentJob) {
         next();
     }
 }
 
 void ThreadedJobQueue::next() {
-    if (m_thread.isRunning())
+//    if (m_thread.isRunning())
+//        return;
+    if (m_jobs.empty()) {
+        m_currentJob = nullptr;
         return;
-    if (m_jobs.empty())
-        return;
+    }
     m_currentJob = m_jobs.top();
     m_jobs.pop();
     if (!m_currentJob) {// impossible?
         qWarning() << "ThreadedJobQueue::next : null next job!";
         next();
     } else  {
-        connect(&m_thread, &QThread::started, qobject_cast<ThreadedJob *>(m_currentJob), &ThreadedJob::process);
-        m_thread.start();
+        if (!m_thread.isRunning())
+            m_thread.start();
+
+        QMetaObject::invokeMethod(m_currentJob, "process", Qt::QueuedConnection);
     }
     QCoreApplication::processEvents(); // Somehow not helping
 }
@@ -466,7 +499,7 @@ void ThreadedJob::move2thread(QThread &t) {
         }
     };
     moveChildren2Thread(this);
-    connect(this, &ThreadedJob::finished, &t, &QThread::quit);
+//    connect(this, &ThreadedJob::finished, &t, &QThread::quit);
 }
 
 int ThreadedJob::priority() const
@@ -802,6 +835,7 @@ Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> tileImage,
     , m_coverage(coverage)
     , m_key(k)
     , m_md5(md5)
+    , m_forwardUncompressed(fetcher.forwardUncompressed())
 {
     connect(this, &Raster2ASTCHandler::insertTileASTC, m_fetcher, &ASTCFetcherWorker::onInsertTileASTC, Qt::QueuedConnection);
     connect(this, &Raster2ASTCHandler::insertCoverageASTC, m_fetcher, &ASTCFetcherWorker::onInsertCoverageASTC, Qt::QueuedConnection);
@@ -820,6 +854,20 @@ void Raster2ASTCHandler::process()
         qWarning() << "NULL image in Compressed Texture Generation!";
         return;
     }
+    // Do this in ASTCFetcher::onInsertTile instead, to prevent ready compound tiles from being shown
+    // due to encoding tasks blocking the job queue
+//    if (m_forwardUncompressed && !ASTCEncoder::instance().isCached(m_md5)) {
+//        std::shared_ptr<ASTCCompressedTextureData> uncompressed =
+//                std::make_shared<ASTCCompressedTextureData>();
+//        uncompressed->m_image = m_rasterImage;
+//        auto t = std::static_pointer_cast<CompressedTextureData>(uncompressed);
+//        if (m_coverage)
+//            emit insertCoverageASTC(m_requestId, t);
+//        else
+//            emit insertTileASTC(m_requestId, m_key, t);
+//        QCoreApplication::processEvents();
+//    }
+
     std::shared_ptr<CompressedTextureData> t =
             std::static_pointer_cast<CompressedTextureData>(
                 ASTCCompressedTextureData::fromImage(m_rasterImage, m_md5));
@@ -895,7 +943,13 @@ quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 #endif
 QSize ASTCCompressedTextureData::size() const
 {
+    // TODO: FIXME!!
     return QSize();
+}
+
+bool ASTCCompressedTextureData::hasCompressedData() const
+{
+    return m_mips.size();
 }
 
 std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage(

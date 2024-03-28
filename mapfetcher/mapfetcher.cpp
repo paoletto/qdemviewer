@@ -152,7 +152,7 @@ void MapFetcher::setURLTemplate(const QString &urlTemplate) {
 }
 
 QString MapFetcher::urlTemplate() const
-{
+{   // TODO: add mutex
     Q_D(const MapFetcher);
     return d->m_urlTemplate;
 }
@@ -187,14 +187,14 @@ quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
 
 void MapFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
     Q_D(MapFetcher);
-    d->m_tileCache[id].emplace(k, std::move(i));
+    d->m_tileCache[id][k] = std::move(i);
     emit tileReady(id, k);
 }
 
 void MapFetcher::onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i)
 {
     Q_D(MapFetcher);
-    d->m_coverages.emplace(id, std::move(i));
+    d->m_coverages[id] = std::move(i);
     emit coverageReady(id);
 }
 
@@ -511,14 +511,14 @@ void DEMFetcher::setBorders(bool borders)
 void DEMFetcher::onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h)
 {
     Q_D(DEMFetcher);
-    d->m_heightmapCache[id].emplace(k, std::move(h));
+    d->m_heightmapCache[id][k] = std::move(h);
     emit heightmapReady(id, k);
 }
 
 void DEMFetcher::onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h)
 {
     Q_D(DEMFetcher);
-    d->m_heightmapCoverages.emplace(id, std::move(h));
+    d->m_heightmapCoverages[id] = std::move(h);
     emit heightmapCoverageReady(id);
 }
 
@@ -590,12 +590,40 @@ std::shared_ptr<CompressedTextureData> ASTCFetcher::tileCoverage(quint64 id)
     return res;
 }
 
+const QAtomicInt &ASTCFetcher::forwardUncompressedTiles() const
+{   // TODO: add mutex
+    Q_D(const ASTCFetcher);
+    return d->m_forwardUncompressed;
+}
+
+void ASTCFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i)
+{
+    Q_D(const ASTCFetcher);
+
+    if (!d->m_forwardUncompressed || !NetworkConfiguration::astcEnabled)
+        return;
+
+    auto ctd = std::make_shared<ASTCCompressedTextureData>();
+    ctd->m_image = i;
+    ASTCFetcher::onInsertASTCTile(id, k, std::static_pointer_cast<CompressedTextureData>(ctd));
+}
+
+void ASTCFetcher::setForwardUncompressedTiles(bool enabled)
+{
+    Q_D(ASTCFetcher);
+    if (enabled == d->m_forwardUncompressed)
+        return;
+
+    d->m_forwardUncompressed = enabled;
+    emit forwardUncompressedTilesChanged(enabled);
+}
+
 void ASTCFetcher::onInsertASTCTile(const quint64 id,
                                    const TileKey k,
                                    std::shared_ptr<CompressedTextureData> i)
 {
     Q_D(ASTCFetcher);
-    d->m_tileCacheASTC[id].emplace(k, std::move(i));
+    d->m_tileCacheASTC[id][k] = std::move(i);
     emit tileReady(id, k);
 }
 
@@ -603,7 +631,7 @@ void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
                                        std::shared_ptr<CompressedTextureData> i)
 {
     Q_D(ASTCFetcher);
-    d->m_coveragesASTC.emplace(id, std::move(i));
+    d->m_coveragesASTC[id] = std::move(i);
     emit coverageReady(id);
 }
 

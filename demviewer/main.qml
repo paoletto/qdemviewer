@@ -83,12 +83,19 @@ QC2.ApplicationWindow {
         property alias rasterEnabled: rasterEnabled.checked
         property alias fastInteraction: fastInteractionMenuItem.checked
         property alias autoRefinement: autoRefinementMenuItem.checked
+        property alias forwardUncompressed: forwardUncompressed.checked
         property alias offline: offline.checked
         property alias invertTessDirection: invertTessDirection.checked
         property alias lightPos: shadingSphere.pos
         property alias joinTiles: joinTilesMenuItem.checked
+        property alias astc: astc.checked
         property int selectedProvider: 0
         property var modelTransformation
+
+        Component.onCompleted: {
+            mapFetcher.forwardUncompressedTiles =
+                    Qt.binding(function() { return settings.forwardUncompressed })
+        }
     }
 
     menuBar: QC2.MenuBar {
@@ -139,7 +146,8 @@ QC2.ApplicationWindow {
                 model: root.urlTemplates
                 id: repeaterProviders
                 onItemAdded: {
-                    if (count > settings.selectedProvider)
+                    if (count > settings.selectedProvider
+                            && itemAt(settings.selectedProvider) !== null)
                         itemAt(settings.selectedProvider).checked = true
                 }
 
@@ -159,7 +167,8 @@ QC2.ApplicationWindow {
                             settings.selectedProvider = index
 
                             for (let i = 0; i < repeaterProviders.count; i++) {
-                                if (i != index) {
+                                if (i != index
+                                    && repeaterProviders.itemAt(i) !== null) {
                                     repeaterProviders.itemAt(i).checked = false
                                 }
                             }
@@ -240,6 +249,18 @@ QC2.ApplicationWindow {
                 QC2.ToolTip.text: "Texture compression reduces memory usage"
                 QC2.ToolTip.delay: 300
             }
+            QC2.MenuItem {
+                id: forwardUncompressed
+                text: qsTr("Use uncompressed tiles")
+                checkable: true
+                checked: false
+                enabled: astc.checked
+
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Use uncompressed textures as soon as they are available"
+                QC2.ToolTip.delay: 300
+            }
             RowLayout {
                 spacing: 4
                 width: parent.width
@@ -253,10 +274,10 @@ QC2.ApplicationWindow {
                 QC2.Slider {
                     id: decimationSlider
                     from: 1
-                    to: 6
+                    to: 8
                     stepSize: 1
                     value: 4
-                    snapMode: Slider.SnapAlways
+                    snapMode: QC2.Slider.SnapAlways
                     Layout.fillWidth: true
                     Layout.alignment: Qt.AlignVCenter
                     property int rate: Math.trunc(Math.pow(2, decimationSlider.value - 1))
@@ -424,8 +445,8 @@ QC2.ApplicationWindow {
                     property var selectionBR: undefined
 
                     MapRectangle {
-                        topLeft: parent.selectionTL
-                        bottomRight: parent.selectionBR
+                        topLeft: (parent.selectionTL !== undefined) ? parent.selectionTL : QtPositioning.coordinate()
+                        bottomRight: (parent.selectionBR !== undefined) ? parent.selectionBR : QtPositioning.coordinate()
                         visible: topLeft !== undefined && bottomRight !== undefined
                         color: "transparent"
                         border.color: "red"
@@ -729,7 +750,7 @@ QC2.ApplicationWindow {
                 }
 
                 RowLayout {
-                    anchors.verticalCenter: parent.verticalCenter
+                    Layout.alignment: Qt.AlignVCenter
                     QC2.TextField {
                         id: newProviderName
                         focus: true

@@ -195,6 +195,7 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
 
     quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
     QSize size() const override;
+    bool hasCompressedData() const override;
 
     static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i, QByteArray md5);
 
@@ -223,6 +224,7 @@ public:
 
     std::map<quint64, TileCacheASTC> m_tileCacheASTC;
     std::map<quint64, std::shared_ptr<CompressedTextureData>> m_coveragesASTC;
+    QAtomicInt m_forwardUncompressed{false};
 };
 
 class MapFetcherWorkerPrivate;
@@ -367,8 +369,12 @@ class ASTCFetcherWorker : public MapFetcherWorker {
 public:
     ASTCFetcherWorker(QObject *parent,
                       ASTCFetcher *f,
-                      QSharedPointer<ThreadedJobQueue> worker);
+                      QSharedPointer<ThreadedJobQueue> worker,
+                      QSharedPointer<ThreadedJobQueue> workerASTC);
     ~ASTCFetcherWorker() override = default;
+
+    Q_INVOKABLE void setForwardUncompressed(bool enabled);
+    bool forwardUncompressed() const;
 
 signals:
     void tileASTCReady(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData>);
@@ -397,7 +403,9 @@ public:
     ASTCFetcherWorkerPrivate() = default;
     ~ASTCFetcherWorkerPrivate() override = default;
 
+    bool m_forwardUncompressed{false};
     std::unordered_map<quint64, quint64> m_request2remainingASTCHandlers;
+    QSharedPointer<ThreadedJobQueue> m_workerASTC;
 };
 
 class NetworkIOManager: public QObject //living in a separate thread
@@ -469,6 +477,7 @@ protected:
 
 protected:
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
+    QSharedPointer<ThreadedJobQueue> m_workerASTC;
 
     std::unordered_map<MapFetcher *, MapFetcherWorker *> m_mapFetcher2Worker;
     std::unordered_map<DEMFetcher *, DEMFetcherWorker *> m_demFetcher2Worker;
@@ -745,6 +754,7 @@ private:
     bool m_coverage;
     TileKey m_key;
     QByteArray m_md5;
+    bool m_forwardUncompressed{false};
 };
 
 #endif

@@ -25,6 +25,18 @@
 #include <QStandardPaths>
 
 namespace {
+class ScopeExit {
+public:
+    ScopeExit(std::function<void()> callback)
+        : callback_{ callback }
+    {}
+    ~ScopeExit()
+    {
+        callback_();
+    }
+private:
+    std::function<void()> callback_;
+};
 static QString randomString(int length)
 {
    const QString possibleCharacters("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789");
@@ -93,6 +105,14 @@ ASTCCache::ASTCCache(const QString &sqlitePath) : m_sqlitePath(sqlitePath) {
     if (!res)
         qWarning() << "Failed to prepare  m_queryInsertData"  << m_queryInsertData.lastError() <<  __FILE__ << __LINE__;
 
+    m_queryHasData = QSqlQuery(m_diskCache);
+    m_queryHasData.setForwardOnly(true);
+    res = m_queryHasData.prepare(QStringLiteral(
+        "SELECT count(*) FROM Tile WHERE tileHash = :hash AND blockX = :blockX AND blockY = :blockY AND quality = :quality"));
+    if (!res)
+        qWarning() << "Failed to prepare  m_queryInsertData"  << m_queryHasData.lastError() <<  __FILE__ << __LINE__;
+
+
     m_initialized = true;
 }
 
@@ -104,6 +124,7 @@ bool ASTCCache::insert(const QByteArray &tileHash,
                        int height,
                        const QByteArray &tile)
 {
+    ScopeExit releaser([this]() {m_queryInsertData.finish();});
     m_queryInsertData.bindValue(0, tileHash);
     m_queryInsertData.bindValue(1, blockX);
     m_queryInsertData.bindValue(2, blockY);
@@ -113,9 +134,10 @@ bool ASTCCache::insert(const QByteArray &tileHash,
     m_queryInsertData.bindValue(6, tile);
 
     if (!m_queryInsertData.exec()) {
-        qDebug() << m_queryInsertData.lastError() <<  __FILE__ << __LINE__;
+        qDebug() << m_queryInsertData.lastError() <<  __FILE__ << __LINE__ << "for "<< width << ","<<height;
         return false;
     }
+    m_diskCache.commit();
     return true;
 }
 
@@ -126,6 +148,7 @@ QByteArray ASTCCache::tile(const QByteArray &tileHash,
                            int width,
                            int height)
 {
+    ScopeExit releaser([this]() {m_queryFetchData.finish();});
     m_queryFetchData.bindValue(0, tileHash);
     m_queryFetchData.bindValue(1, blockX);
     m_queryFetchData.bindValue(2, blockY);
@@ -141,6 +164,23 @@ QByteArray ASTCCache::tile(const QByteArray &tileHash,
     if (m_queryFetchData.first())
         return m_queryFetchData.value(0).toByteArray();
     return {};
+}
+
+bool ASTCCache::contains(const QByteArray &tileHash,
+                         int blockX,
+                         int blockY,
+                         float quality)
+{
+    ScopeExit releaser([this]() {m_queryHasData.finish();});
+    m_queryHasData.bindValue(0, tileHash);
+    m_queryHasData.bindValue(1, blockX);
+    m_queryHasData.bindValue(2, blockY);
+    m_queryHasData.bindValue(3, quality);
+    if (!m_queryHasData.exec()) {
+        qDebug() << m_queryHasData.lastError() <<  __FILE__ << __LINE__;
+        return {};
+    }
+    return bool(m_queryHasData.value(0).toInt());
 }
 
 quint64 ASTCCache::size() const
@@ -223,6 +263,14 @@ CompoundTileCache::CompoundTileCache()
     if (!res)
         qWarning() << "Failed to prepare  m_queryInsertData"  << m_queryInsertData.lastError() <<  __FILE__ << __LINE__;
 
+    m_queryLockStatus = QSqlQuery(m_diskCache);
+    m_queryLockStatus.setForwardOnly(true);
+    res = m_queryLockStatus.prepare(QStringLiteral(
+        "pragma lock_status"));
+    if (!res)
+        qWarning() << "Failed to prepare  m_queryLockStatus"  << m_queryLockStatus.lastError() <<  __FILE__ << __LINE__;
+
+
     m_initialized = true;
 }
 
@@ -250,24 +298,36 @@ bool CompoundTileCache::insert(const QString &tileBaseURL,
     if (!m_initialized)
         return false;
 
+    ScopeExit releaser([this]() {m_queryInsertData.finish();});
     QByteArray data;
     QBuffer buffer(&data);
     buffer.open(QIODevice::WriteOnly);
     tile.save(&buffer, "PNG", 0);
 
-    m_queryInsertData.bindValue(0, tileBaseURL);
-    m_queryInsertData.bindValue(1, x);
-    m_queryInsertData.bindValue(2, y);
-    m_queryInsertData.bindValue(3, sourceZoom);
-    m_queryInsertData.bindValue(4, destinationZoom);
-    m_queryInsertData.bindValue(5, md5);
-    m_queryInsertData.bindValue(6, data);
+    int count = 0;
+    bool res = 0;
+    while (!res) {
+        m_queryInsertData.bindValue(0, tileBaseURL);
+        m_queryInsertData.bindValue(1, x);
+        m_queryInsertData.bindValue(2, y);
+        m_queryInsertData.bindValue(3, sourceZoom);
+        m_queryInsertData.bindValue(4, destinationZoom);
+        m_queryInsertData.bindValue(5, md5);
+        m_queryInsertData.bindValue(6, data);
 
-
-    if (!m_queryInsertData.exec()) {
-        qDebug() << m_queryInsertData.lastError() <<  __FILE__ << __LINE__;
-        return false;
+        res = m_queryInsertData.exec();
+        if (!res) {
+            ++count;
+            qDebug() << m_queryInsertData.lastError() << __FILE__ << __LINE__;
+//                     <<  m_queryInsertData.lastError().nativeErrorCode()
+//                     <<  m_queryInsertData.lastError().databaseText()
+//                     <<  m_queryInsertData.lastError().driverText() << __FILE__ << __LINE__;
+            if (count >= 10) {
+                return false;
+            }
+        }
     }
+    m_diskCache.commit();
     return true;
 }
 
@@ -280,6 +340,7 @@ QImage CompoundTileCache::tile(const QString &tileBaseURL,
     if (!m_initialized)
         return {};
 
+    ScopeExit releaser([this]() {m_queryFetchData.finish();});
     m_queryFetchData.bindValue(0, tileBaseURL);
     m_queryFetchData.bindValue(1, x);
     m_queryFetchData.bindValue(2, y);
@@ -306,6 +367,7 @@ QByteArray CompoundTileCache::tileMD5(const QString &tileBaseURL, int x, int y, 
 {
     if (!m_initialized)
         return {};
+    ScopeExit releaser([this]() {m_queryFetchHash.finish();});
     m_queryFetchHash.bindValue(0, tileBaseURL);
     m_queryFetchHash.bindValue(1, x);
     m_queryFetchHash.bindValue(2, y);
@@ -326,7 +388,7 @@ QPair<QByteArray, QImage> CompoundTileCache::tileRecord(const QString &tileBaseU
 {
     if (!m_initialized)
         return {};
-
+    ScopeExit releaser([this]() {m_queryFetchBoth.finish();});
     m_queryFetchBoth.bindValue(0, tileBaseURL);
     m_queryFetchBoth.bindValue(1, x);
     m_queryFetchBoth.bindValue(2, y);
@@ -346,6 +408,24 @@ QPair<QByteArray, QImage> CompoundTileCache::tileRecord(const QString &tileBaseU
         QImage ima;
         ima.load(&buffer, "PNG");
         return QPair<QByteArray, QImage>(md5, ima);
+    }
+    return {};
+}
+
+QString CompoundTileCache::lockStatus()
+{
+    if (!m_initialized)
+        return {};
+
+
+    if (!m_queryLockStatus.exec()) {
+        qDebug() << m_queryLockStatus.lastError() <<  __FILE__ << __LINE__;
+        return {};
+    }
+
+    if (m_queryLockStatus.first()) {
+        auto res = m_queryLockStatus.value(0).toString();
+        qDebug() << "CompoundTileCache("<< QThread::currentThread()->objectName() <<") lock status: "<<res;
     }
     return {};
 }

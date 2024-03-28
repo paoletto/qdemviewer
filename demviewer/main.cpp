@@ -309,12 +309,12 @@ struct Tile
         return m_key < o.m_key;
     }
 
-    void setDem(std::shared_ptr<Heightmap> dem) const {
+    void setDem(std::shared_ptr<Heightmap> dem) {
         m_dem = std::move(*dem);
         m_resolution = m_dem.size();
     }
 
-    void setMap(std::shared_ptr<CompressedTextureData> map) const {
+    void setMap(std::shared_ptr<CompressedTextureData> map) {
         m_map = map;
         if (!m_map)
             m_rasterBytes = 0;
@@ -332,7 +332,7 @@ struct Tile
     }
 
 
-    void init() const
+    void init()
     {
         if (m_initialized)
             return;
@@ -345,7 +345,7 @@ struct Tile
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao); // creates it when bound the first time
     }
 
-    QSharedPointer<QOpenGLTexture> demTexture() const {
+    QSharedPointer<QOpenGLTexture> demTexture() {
         if (!m_dem.size().isEmpty() /*&& !m_texDem*/) {
             Heightmap &h = m_dem;
             m_hasBorders = h.m_hasBorders;
@@ -371,10 +371,11 @@ struct Tile
         return m_texDem;
     }
 
-    QSharedPointer<QOpenGLTexture> mapTexture() const
+    QSharedPointer<QOpenGLTexture> mapTexture()
     {
         if (m_map) {
             m_rasterBytes = m_map->upload(m_texMap);
+            m_compressedRaster = m_map->hasCompressedData();
             m_map = nullptr;
         }
         return m_texMap;
@@ -388,7 +389,7 @@ struct Tile
               const QVector3D &lightDirection,
               bool interactive,
               bool joinTiles,
-              int downsamplingRate) const
+              int downsamplingRate)
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         if (!m_shader) {
@@ -468,11 +469,12 @@ struct Tile
         shader->setUniformValue("elevationScale", elevationScale);
         const QMatrix4x4 m = transformation * tileMatrix;
         shader->setUniformValue("matrix", m);
+//        shader->setUniformValue("color", (m_compressedRaster)
+//                                          ? QColor(255,0,255,255)
+//                                          : QColor(255,255,255,255));
         shader->setUniformValue("color", QColor(255,255,255,255));
-//        if (rasterTxt) {
-            shader->setUniformValue("raster", 0);
-//            shader->setUniformValueArray("lightingCurve", lightingCurve(), 256, 1);
-        //}
+
+        shader->setUniformValue("raster", 0);
         shader->setUniformValue("brightness", (rasterTxt) ? brightness : 1.0f );
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
         shader->setUniformValue("lightDirection", lightDirection);
@@ -527,20 +529,21 @@ struct Tile
 
     // reuse the same every time
     TileKey m_key;
-    mutable QSize m_resolution; // GLint bcz somehow setUniformValue is picking the wrong overload otherwise
+    QSize m_resolution; // GLint bcz somehow setUniformValue is picking the wrong overload otherwise
 
-    mutable quint64 m_rasterBytes{0};
-    mutable bool m_hasBorders{false};
-    mutable bool m_initialized{false};
-    mutable Heightmap m_dem;
-    mutable QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
+    bool m_compressedRaster{false};
+    quint64 m_rasterBytes{0};
+    bool m_hasBorders{false};
+    bool m_initialized{false};
+    Heightmap m_dem;
+    QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
-    mutable std::shared_ptr<CompressedTextureData> m_map;
-    mutable QSharedPointer<QOpenGLTexture> m_texMap;
+    std::shared_ptr<CompressedTextureData> m_map;
+    QSharedPointer<QOpenGLTexture> m_texMap;
 
-    mutable std::shared_ptr<Tile> m_right;
-    mutable std::shared_ptr<Tile> m_bottom;
-    mutable std::shared_ptr<Tile> m_bottomRight;
+    std::shared_ptr<Tile> m_right;
+    std::shared_ptr<Tile> m_bottom;
+    std::shared_ptr<Tile> m_bottomRight;
 
     static GLint m_maxTexSize;
     static QOpenGLShaderProgram *m_shader;
@@ -983,7 +986,7 @@ protected slots:
     }
 
     void onDtmReady(quint64 id, const TileKey k) {
-        m_newTiles.emplace(k, m_utilities->heightmap(id, k));
+        m_newTiles[k] =  m_utilities->heightmap(id, k);
         delayedUpdate();
     }
 
@@ -992,14 +995,14 @@ protected slots:
             return;
         reset();
         m_newTiles.clear();
-        m_newTiles.emplace(TileKey{0,0,0},  m_utilities->heightmapCoverage(id));
+        m_newTiles[TileKey{0,0,0}] = m_utilities->heightmapCoverage(id);
         delayedUpdate();
     }
 
     void onMapTileReady(quint64 id, const TileKey k) {
         if (!m_rasterFetcher)
             return;
-        m_newMapRasters.emplace(k, m_rasterFetcher->tile(id, k));
+        m_newMapRasters[k] = m_rasterFetcher->tile(id, k);
         delayedUpdate();
     }
 
@@ -1009,7 +1012,7 @@ protected slots:
         m_newMapRasters.clear(); // prb useless
         auto raster = m_rasterFetcher->tileCoverage(id);
 
-        m_newMapRasters.emplace(TileKey{0,0,0},  std::move(raster));
+        m_newMapRasters[TileKey{0,0,0}] =  std::move(raster);
         delayedUpdate();
     }
 
