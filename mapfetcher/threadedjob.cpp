@@ -426,7 +426,7 @@ public:
     void operator=(ASTCEncoder const&)         = delete;
 };
 
-bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJob *l, const ThreadedJob *r) const {
+bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJobData *l, const ThreadedJobData *r) const {
     if (l && r)
         return r->priority() < l->priority();
     return false;
@@ -446,16 +446,11 @@ ThreadedJobQueue::~ThreadedJobQueue() {
 
 }
 
-void ThreadedJobQueue::schedule(ThreadedJob *handler) {
+void ThreadedJobQueue::schedule(ThreadedJobData *handler) {
     if (!handler) {
         qWarning() << "ThreadedJobQueue::schedule: null handler!";
         return;
     }
-
-    handler->move2thread(m_thread);
-//    connect(handler, &ThreadedJob::finished, &m_thread, &QThread::quit);
-    connect(handler, &ThreadedJob::finished,
-            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
     m_jobs.push(handler);
 
     if (!m_currentJob) {
@@ -470,7 +465,12 @@ void ThreadedJobQueue::next() {
         m_currentJob = nullptr;
         return;
     }
-    m_currentJob = m_jobs.top();
+    auto jobData = m_jobs.top();
+    auto job = ThreadedJob::fromData(jobData);
+    job->move2thread(m_thread);
+    connect(job, &ThreadedJob::finished,
+            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
+    m_currentJob = job;
     m_jobs.pop();
     if (!m_currentJob) {// impossible?
         qWarning() << "ThreadedJobQueue::next : null next job!";
@@ -503,12 +503,6 @@ void ThreadedJob::move2thread(QThread &t) {
     moveChildren2Thread(this);
 //    connect(this, &ThreadedJob::finished, &t, &QThread::quit);
 }
-
-int ThreadedJob::priority() const
-{
-    return 10;
-}
-
 
 TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
                                    MapFetcherWorker &mapFetcher)
@@ -831,11 +825,6 @@ void CachedCompoundTileHandler::process() {
                    std::move(m_md5));
 }
 
-int CachedCompoundTileHandler::priority() const
-{
-    return 9;
-}
-
 DEMReadyHandler::DEMReadyHandler(std::shared_ptr<QImage> demImage,
                                  const TileKey k,
                                  DEMFetcherWorker &demFetcher,
@@ -855,11 +844,6 @@ DEMReadyHandler::DEMReadyHandler(std::shared_ptr<QImage> demImage,
     connect(this, &DEMReadyHandler::insertHeightmap, this, &ThreadedJob::finished);
 }
 
-int DEMReadyHandler::priority() const
-{
-    return 8;
-}
-
 void DEMReadyHandler::process()
 {
     if (!m_demImage) {
@@ -876,14 +860,14 @@ void DEMReadyHandler::process()
 }
 
 
-Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> tileImage,
+Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> rasterImage,
                                        const TileKey k,
                                        ASTCFetcherWorker &fetcher,
                                        quint64 id,
                                        bool coverage,
                                        QByteArray md5)
     : m_fetcher(&fetcher)
-    , m_rasterImage(std::move(tileImage))
+    , m_rasterImage(std::move(rasterImage))
     , m_requestId(id)
     , m_coverage(coverage)
     , m_key(k)
@@ -894,11 +878,6 @@ Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> tileImage,
     connect(this, &Raster2ASTCHandler::insertCoverageASTC, m_fetcher, &ASTCFetcherWorker::onInsertCoverageASTC, Qt::QueuedConnection);
     connect(this, &Raster2ASTCHandler::insertCoverageASTC, this, &ThreadedJob::finished);
     connect(this, &Raster2ASTCHandler::insertTileASTC, this, &ThreadedJob::finished);
-}
-
-int Raster2ASTCHandler::priority() const
-{
-    return 9;
 }
 
 void Raster2ASTCHandler::process()
@@ -934,11 +913,6 @@ void Raster2ASTCHandler::process()
 DEMTileReplyHandler::DEMTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)
 :   TileReplyHandler(reply, mapFetcher) {
     m_computeHash = false;
-}
-
-int DEMTileReplyHandler::priority() const
-{
-    return 7;
 }
 
 #if 0
@@ -1025,4 +999,53 @@ std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage
     return res;
 }
 
-
+ThreadedJob *ThreadedJob::fromData(ThreadedJobData *data)
+{
+    struct ScopeExit {
+            ScopeExit(ThreadedJobData &data) : d{ &data } {}
+            ~ScopeExit() { delete d; }
+            ThreadedJobData *d;
+    };
+    ScopeExit deleter(*data);
+    switch (data->type()) {
+    case ThreadedJobData::JobType::TileReply: {
+        TileReplyData *d = static_cast<TileReplyData *>(data);
+        return new TileReplyHandler(d->m_reply,
+                                    d->m_mapFetcher) ;
+    }
+    case ThreadedJobData::JobType::DEMTileReply: {
+        DEMTileReplyData *d = static_cast<DEMTileReplyData *>(data);
+        return new DEMTileReplyHandler(d->m_reply,
+                                       d->m_mapFetcher) ;
+    }
+    case ThreadedJobData::JobType::CachedCompoundTile: {
+        CachedCompoundTileData *d = static_cast<CachedCompoundTileData *>(data);
+        return new CachedCompoundTileHandler(d->m_id,
+                                             d->m_k,
+                                             d->m_sourceZoom,
+                                             std::move(d->m_md5),
+                                             d->m_urlTemplate,
+                                             d->m_mapFetcher);
+    }
+    case ThreadedJobData::JobType::DEMReady: {
+        DEMReadyData *d = static_cast<DEMReadyData *>(data);
+        return new DEMReadyHandler(std::move(d->m_demImage),
+                                   d->m_k,
+                                   d->m_demFetcher,
+                                   d->m_id,
+                                   d->m_coverage,
+                                   std::move(d->m_neighbors));
+    }
+    case ThreadedJobData::JobType::Raster2ASTC: {
+        Raster2ASTCData *d = static_cast<Raster2ASTCData *>(data);
+        return new Raster2ASTCHandler(std::move(d->m_rasterImage),
+                                      d->m_k,
+                                      d->m_fetcher,
+                                      d->m_id,
+                                      d->m_coverage,
+                                      std::move(d->m_md5));
+    }
+    default:
+        return nullptr;
+    }
+}

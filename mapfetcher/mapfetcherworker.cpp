@@ -645,7 +645,7 @@ void DEMFetcherWorker::onTileReady(const quint64 id, const TileKey k,  std::shar
         return;
     }
     if (!d->m_borders) {
-        auto h = new DEMReadyHandler(std::move(i),
+        auto h = new DEMReadyData(std::move(i),
                                      k,
                                      *this,
                                      id,
@@ -688,7 +688,7 @@ void DEMFetcherWorker::onTileReady(const quint64 id, const TileKey k,  std::shar
             std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> tileNeighbors_;
             tileNeighbors_.swap(tileNeighbors[tk].second);
             tileNeighbors.erase(tk);
-            auto h = new DEMReadyHandler(d->tile(id, tk),
+            auto h = new DEMReadyData(d->tile(id, tk),
                                          tk,
                                          *this,
                                          id,
@@ -718,7 +718,7 @@ void DEMFetcherWorker::onTileReady(const quint64 id, const TileKey k,  std::shar
 void DEMFetcherWorker::onCoverageReady(quint64 id,  std::shared_ptr<QImage> i)
 {
     Q_D(DEMFetcherWorker);
-    auto h = new DEMReadyHandler(i,
+    auto h = new DEMReadyData(i,
                                  {0,0,0},
                                  *this,
                                  id,
@@ -780,7 +780,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     if (af)  // ASTCFetcher is a multistage fetcher that may request compound tiles
         af->d_func()->m_request2remainingASTCHandlers[requestId] = 0;
     quint64 srcTilesSize = tiles.size();
-    std::vector<CachedCompoundTileHandler *> cachedCompoundTileHandlers;
+    std::vector<CachedCompoundTileData *> cachedCompoundTileHandlers;
     if (destinationZoom < zoom) { // Only happens with Raster
         // split tiles to request
         quint64 destSideLength = 1 << int(destinationZoom);
@@ -796,7 +796,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
                                                 zoom,
                                                 destinationZoom);
                 if (data.size()) {
-                    cachedCompoundTileHandlers.push_back(new CachedCompoundTileHandler(
+                    cachedCompoundTileHandlers.push_back(new CachedCompoundTileData(
                                                                requestId
                                                              , {quint64(dt.ts.x()), quint64(dt.ts.y()), destinationZoom}
                                                              , zoom
@@ -934,8 +934,8 @@ void MapFetcherWorker::onTileReplyFinished() {
         return; // Already handled in networkReplyError
     }
 
-    auto *handler = (df) ? new DEMTileReplyHandler(reply, *this)
-                         : new TileReplyHandler(reply, *this);
+    auto *handler = (df) ? new DEMTileReplyData(reply, *this)
+                         : new TileReplyData(reply, *this);
     d->m_worker->schedule(handler);
 }
 
@@ -955,7 +955,7 @@ void MapFetcherWorker::onTileReplyForCoverageFinished() {
         return; // Already handled in networkReplyError
     }
 
-    auto *handler = new TileReplyHandler(reply,
+    auto *handler = new TileReplyData(reply,
                                          *this);
     d->m_worker->schedule(handler);
 }
@@ -1133,7 +1133,7 @@ void ASTCFetcherWorker::onTileReady(quint64 id,
                                     QByteArray md5)
 {
     Q_D(ASTCFetcherWorker);
-    auto h = new Raster2ASTCHandler(i,
+    auto h = new Raster2ASTCData(i,
                                  k,
                                  *this,
                                  id,
@@ -1146,7 +1146,7 @@ void ASTCFetcherWorker::onCoverageReady(quint64 id,
                                         std::shared_ptr<QImage> i)
 {
     Q_D(ASTCFetcherWorker);
-    auto h = new Raster2ASTCHandler(i,
+    auto h = new Raster2ASTCData(i,
                                  {0,0,0},
                                  *this,
                                  id,

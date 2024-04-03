@@ -54,6 +54,23 @@ using TileCacheASTC = std::map<TileKey, std::shared_ptr<CompressedTextureData>>;
 //};
 
 //QDebug operator<<(QDebug d, const GeoTileSpec &k);
+struct ThreadedJobData {
+    enum class JobType {
+        Invalid = 0,
+        TileReply = 1,
+        CachedCompoundTile = 2,
+        DEMTileReply = 3,
+        DEMReady = 4,
+        Raster2ASTC = 5
+    };
+
+    virtual ~ThreadedJobData() {}
+    virtual JobType type() const { return JobType::Invalid; }
+    virtual int priority() const = 0;
+
+protected:
+    ThreadedJobData() {}
+};
 
 class ThreadedJob : public QObject
 {
@@ -63,7 +80,8 @@ public:
     ~ThreadedJob() override = default;
 
     void move2thread(QThread &t);
-    virtual int priority() const;
+
+    static ThreadedJob *fromData(ThreadedJobData *);
 
 public slots:
     virtual void process() = 0;
@@ -83,16 +101,16 @@ public:
     ThreadedJobQueue(QObject *parent = nullptr);
     ~ThreadedJobQueue() override;
 
-    void schedule(ThreadedJob *handler);
+    void schedule(ThreadedJobData *data);
 
 protected slots:
     void next();
 
 protected:
     struct JobComparator {
-        bool operator()(const ThreadedJob * l, const ThreadedJob * r) const;
+        bool operator()(const ThreadedJobData * l, const ThreadedJobData * r) const;
     };
-    std::priority_queue<ThreadedJob *, std::vector<ThreadedJob *>,  JobComparator> m_jobs;
+    std::priority_queue<ThreadedJobData*, std::vector<ThreadedJobData *>,  JobComparator> m_jobs;
     QAtomicPointer<QObject> m_currentJob{nullptr};
     QThread m_thread;
 };
@@ -618,6 +636,8 @@ public:
                      MapFetcherWorker &mapFetcher);
     ~TileReplyHandler() override = default;
 
+    static int priority() { return 10; }
+
 signals:
     void insertTile(quint64 id, TileKey k, std::shared_ptr<QImage> i, QByteArray md5 = {});
     void insertCoverage(quint64 id, std::shared_ptr<QImage> i);
@@ -636,6 +656,19 @@ protected:
     bool m_computeHash{true}; // it's currently only false for DEM, so it tells whether it is a DEM image
 };
 
+struct TileReplyData : public ThreadedJobData {
+    TileReplyData(QNetworkReply *reply,
+                  MapFetcherWorker &mapFetcher)
+   : ThreadedJobData(), m_reply(reply), m_mapFetcher(mapFetcher)
+   {}
+    ~TileReplyData() override {}
+    JobType type() const override { return JobType::TileReply; }
+    int priority() const override { return TileReplyHandler::priority(); }
+
+    QNetworkReply *m_reply;
+    MapFetcherWorker &m_mapFetcher;
+};
+
 class CachedCompoundTileHandler : public ThreadedJob
 {
     Q_OBJECT
@@ -647,7 +680,7 @@ public:
                               QString urlTemplate,
                               MapFetcherWorker &mapFetcher);
     ~CachedCompoundTileHandler() override = default;
-    int priority() const override;
+    static int priority() { return 9; };
 
 signals:
     void tileReady(quint64 id, TileKey k, std::shared_ptr<QImage> i, QByteArray md5);
@@ -664,6 +697,29 @@ protected:
     MapFetcherWorker *m_mapFetcher{nullptr};
 };
 
+struct CachedCompoundTileData : public ThreadedJobData {
+    CachedCompoundTileData(quint64 id,
+                           TileKey k,
+                           quint8 sourceZoom,
+                           QByteArray md5,
+                           QString urlTemplate,
+                           MapFetcherWorker &mapFetcher)
+   : ThreadedJobData(), m_id(id), m_k(k), m_sourceZoom(sourceZoom), m_md5(std::move(md5))
+     , m_urlTemplate(std::move(urlTemplate)), m_mapFetcher(mapFetcher)
+   {}
+    ~CachedCompoundTileData() override {}
+    int priority() const override { return CachedCompoundTileHandler::priority(); }
+
+    JobType type() const override { return JobType::CachedCompoundTile; }
+
+    quint64 m_id;
+    TileKey m_k;
+    quint8 m_sourceZoom;
+    QByteArray m_md5;
+    QString m_urlTemplate;
+    MapFetcherWorker &m_mapFetcher;
+};
+
 class DEMTileReplyHandler : public TileReplyHandler {
     Q_OBJECT
 public:
@@ -671,7 +727,17 @@ public:
                      MapFetcherWorker &mapFetcher);
     ~DEMTileReplyHandler() override = default;
 
-    int priority() const override;
+    static int priority() { return 7; }
+};
+
+struct DEMTileReplyData : public TileReplyData {
+    DEMTileReplyData(QNetworkReply *reply,
+                     MapFetcherWorker &mapFetcher)
+    : TileReplyData(reply, mapFetcher) {}
+    ~DEMTileReplyData() override {}
+    int priority() const override { return DEMTileReplyHandler::priority(); }
+
+    JobType type() const override { return JobType::DEMTileReply; }
 };
 
 class DEMReadyHandler : public ThreadedJob
@@ -686,7 +752,7 @@ public:
                     std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> neighbors = {});
 
     ~DEMReadyHandler() override = default;
-    int priority() const override;
+    static int priority() { return 8; }
     const TileKey &tileKey() const {
         return m_key;
     }
@@ -707,11 +773,35 @@ private:
     std::map<Heightmap::Neighbor, std::shared_ptr<QImage> > m_neighbors;
 };
 
+struct DEMReadyData : public ThreadedJobData {
+    DEMReadyData(std::shared_ptr<QImage> demImage,
+                     const TileKey k,
+                     DEMFetcherWorker &demFetcher,
+                     quint64 id,
+                     bool coverage,
+                     std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> neighbors = {})
+   : ThreadedJobData()
+    , m_demImage(std::move(demImage)), m_k(k), m_demFetcher(demFetcher), m_id(id)
+    , m_coverage(coverage), m_neighbors(std::move(neighbors))
+   {}
+    ~DEMReadyData() override {}
+    int priority() const override { return DEMReadyHandler::priority(); }
+
+    JobType type() const override { return JobType::DEMReady; }
+
+    std::shared_ptr<QImage> m_demImage;
+    const TileKey m_k;
+    DEMFetcherWorker &m_demFetcher;
+    quint64 m_id;
+    bool m_coverage;
+    std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> m_neighbors;
+};
+
 class Raster2ASTCHandler : public ThreadedJob
 {
     Q_OBJECT
 public:
-    Raster2ASTCHandler(std::shared_ptr<QImage> demImage,
+    Raster2ASTCHandler(std::shared_ptr<QImage> rasterImage,
                     const TileKey k,
                     ASTCFetcherWorker &fetcher,
                     quint64 id,
@@ -722,7 +812,7 @@ public:
     const TileKey &tileKey() const {
         return m_key;
     }
-    int priority() const override;
+    static int priority() { return 9; }
 
 signals:
     void insertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> i);
@@ -739,6 +829,29 @@ private:
     TileKey m_key;
     QByteArray m_md5;
     bool m_forwardUncompressed{false};
+};
+
+struct Raster2ASTCData : public ThreadedJobData {
+    Raster2ASTCData(std::shared_ptr<QImage> rasterImage,
+                    const TileKey k,
+                    ASTCFetcherWorker &fetcher,
+                    quint64 id,
+                    bool coverage,
+                    QByteArray md5)
+   : ThreadedJobData()
+   , m_rasterImage(std::move(rasterImage)), m_k(k), m_fetcher(fetcher), m_id(id)
+   , m_coverage(coverage), m_md5(std::move(md5))
+   {}
+    ~Raster2ASTCData() override {}
+    int priority() const override { return Raster2ASTCHandler::priority(); }
+    JobType type() const override { return JobType::Raster2ASTC; }
+
+    std::shared_ptr<QImage> m_rasterImage;
+    const TileKey m_k;
+    ASTCFetcherWorker &m_fetcher;
+    quint64 m_id;
+    bool m_coverage;
+    QByteArray m_md5;
 };
 
 inline uint qHash (const QPoint & key)
