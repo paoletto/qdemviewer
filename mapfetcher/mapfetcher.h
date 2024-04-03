@@ -76,6 +76,7 @@ struct TileData {
 struct NetworkConfiguration {
     static QAtomicInt offline;
     static QAtomicInt astcEnabled;
+    static QAtomicInt logNetworkRequests;
 };
 
 struct Heightmap {
@@ -123,6 +124,14 @@ class MapFetcher : public QObject {
     Q_OBJECT
 
     Q_PROPERTY(QString urlTemplate READ urlTemplate WRITE setURLTemplate NOTIFY urlTemplateChanged)
+    Q_PROPERTY(int maximumZoomLevel
+                   READ maximumZoomLevel
+                   WRITE setMaximumZoomLevel
+                   NOTIFY maximumZoomLevelChanged)
+    Q_PROPERTY(bool overzoom
+                   READ overzoom
+                   WRITE setOverzoom
+                   NOTIFY overzoomChanged)
 
 public:
     MapFetcher(QObject *parent);
@@ -132,13 +141,11 @@ public:
     // onto which the tile is used as texture.
     // This API allows to fetch a different (larger) ZL and assemble it
     // into an image that matches the destinationZoom
-    Q_INVOKABLE quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
-                                        const QGeoCoordinate &cbr,
+    Q_INVOKABLE quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                         const quint8 zoom,
                                         quint8 destinationZoom);
 
-    Q_INVOKABLE quint64 requestCoverage(const QGeoCoordinate &ctl,
-                                        const QGeoCoordinate &cbr,
+    Q_INVOKABLE quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                                         const quint8 zoom,
                                         const bool clip = false);
 
@@ -148,10 +155,16 @@ public:
     void setURLTemplate(const QString &urlTemplate);
     QString urlTemplate() const;
 
-    static quint8 zoomForCoverage(const QGeoCoordinate &ctl,
-                                  const QGeoCoordinate &cbr,
+    void setMaximumZoomLevel(int maxzl);
+    int maximumZoomLevel() const;
+
+    void setOverzoom(bool enabled);
+    int overzoom() const;
+
+    static quint8 zoomForCoverage(const QList<QGeoCoordinate> &crds,
                                   const size_t tileResolution,
-                                  const size_t maxCoverageResolution);
+                                  const size_t maxCoverageResolution,
+                                  bool rectangular = false);
 
     static quint64 networkCacheSize();
     static QString networkCachePath();
@@ -160,9 +173,12 @@ public:
 
 signals:
     void tileReady(quint64 id, const TileKey k);
+    void progress(quint64 id, QPair<quint64, quint64> operations);
     void coverageReady(quint64 id);
     void urlTemplateChanged();
     void requestHandlingFinished(quint64 id);
+    void maximumZoomLevelChanged();
+    void overzoomChanged();
 
 protected slots:
     virtual void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);

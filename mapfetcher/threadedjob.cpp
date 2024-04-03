@@ -479,7 +479,9 @@ void ThreadedJobQueue::next() {
         if (!m_thread.isRunning())
             m_thread.start();
 
-        QMetaObject::invokeMethod(m_currentJob, "process", Qt::QueuedConnection);
+        QMetaObject::invokeMethod(m_currentJob,
+                                  "process",
+                                  Qt::QueuedConnection);
     }
     QCoreApplication::processEvents(); // Somehow not helping
 }
@@ -572,7 +574,7 @@ void TileReplyHandler::processStandaloneTile()
                         k,
                         std::move(tile),
                         std::move(md5));
-    } else {
+    } else if (z > dz) {
         int destSideLength = 1 << dz;
         int sideLength = 1 << z;
         const size_t numSubtiles =   (sideLength / destSideLength);
@@ -595,6 +597,42 @@ void TileReplyHandler::processStandaloneTile()
             m_mapFetcher->d_func()->m_tileCacheCache[id].erase(dk);
         } else {
             emit expectingMoreSubtiles();
+        }
+    } else { // z < dz -- split
+//        k = TileKey{x,y,z};
+        auto tile = QImage::fromData(std::move(data)).mirrored(false, m_computeHash);
+        int nSubTiles = 1 << (dz - z);
+        int subTileSize = tile.size().width() / nSubTiles;
+
+        if (nSubTiles > tile.size().width()) {
+            qFatal("Requested too fine subdivision"); // TODO: don't fatal here
+        }
+
+        auto extractSubTile = [&tile, &subTileSize](int x, int y) {
+            QImage res(subTileSize, subTileSize, tile.format());
+
+            for (int sx = 0; sx < subTileSize; ++sx) {
+                for (int sy = 0; sy < subTileSize; ++sy) {
+                    res.setPixelColor(sx,sy,tile.pixelColor(x*subTileSize + sx,
+                                                            y*subTileSize + sy));
+                }
+            }
+            return res;
+        };
+
+        for (int sy = 0; sy < nSubTiles; ++sy) {
+            for (int sx = 0; sx < nSubTiles; ++sx) {
+                    auto t = std::make_shared<QImage>(extractSubTile(sx, sy));
+                    if (m_computeHash)
+                        md5 = md5QImage(*t);
+
+                    emit insertTile(id,
+                                    TileKey{x * nSubTiles + sx,
+                                            y * nSubTiles + sy,
+                                            dz},
+                                    std::move(t),
+                                    std::move(md5));
+            }
         }
     }
 }
@@ -620,11 +658,11 @@ void TileReplyHandler::processCoverageTile()
         return; // belongs to an errored request;
     }
 
-    QGeoCoordinate tlc, brc;
+    QList<QGeoCoordinate> crds;
     quint8 zoom;
     quint64 totalTileCount;
     bool clip;
-    std::tie(tlc, brc, zoom, totalTileCount, clip) = request->second;
+    std::tie(crds, zoom, totalTileCount, clip) = request->second;
     QByteArray data; ;
 
     if (reply->error() != QNetworkReply::NoError
@@ -632,7 +670,7 @@ void TileReplyHandler::processCoverageTile()
         // Drop the records and ignore this request
 
         qWarning() << "Tile request " << TileKey(x,y,z)
-                   << " for request " << tlc<< "," <<brc<<","<<zoom<<"  FAILED";
+                   << " for request " << crds<<","<<zoom<<"  FAILED";
         d->m_tileSets.erase(id);
         d->m_requests.erase(id);
         emit error();
@@ -670,15 +708,15 @@ void TileReplyHandler::finalizeCoverageRequest(quint64 id)
         return;
     }
 
-    QGeoCoordinate tlc, brc;
+    QList<QGeoCoordinate> crds;
     quint8 zoom;
     quint64 totalTileCount;
     bool clip;
-    std::tie(tlc, brc, zoom, totalTileCount, clip) = request;
+    std::tie(crds, zoom, totalTileCount, clip) = request;
 
     // find min max to compute result extent
     quint64 minX, maxX, minY, maxY;
-    std::tie(minX, maxX, minY, maxY) = getMinMax(tileSet);
+    std::tie(minX, maxX, minY, maxY) = getMinMax(tileSet);    
 
     const quint64 hTiles = maxX - minX + 1;
     const quint64 vTiles = maxY - minY + 1;
@@ -712,8 +750,23 @@ void TileReplyHandler::finalizeCoverageRequest(quint64 id)
     }
 
     if (clip) {
+        double minLat = qInf();
+        double maxLat = -qInf();
+        double minLon = qInf();
+        double maxLon = -qInf();
+        for (const auto &c: crds) {
+            minLat = qMin(minLat, c.latitude());
+            maxLat = qMax(maxLat, c.latitude());
+            minLon = qMin(minLon, c.longitude());
+            maxLon = qMax(maxLon, c.longitude());
+        }
+
+        QGeoCoordinate tlc(maxLat, minLon);
+        QGeoCoordinate brc(minLat, maxLon);
+
         int xleft, xright, ytop, ybot;
         const size_t sideLength = 1 << size_t(zoom);
+        // TODO: find tlc and brc in mercator space from crds, then use them here
         const QDoubleVector2D tl = sideLength * tileRes
                                    * QWebMercator::coordToMercator(tlc);
         const QDoubleVector2D br = sideLength * tileRes

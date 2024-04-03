@@ -60,6 +60,7 @@
 
 QAtomicInt NetworkConfiguration::offline{false};
 QAtomicInt NetworkConfiguration::astcEnabled{false};
+QAtomicInt NetworkConfiguration::logNetworkRequests{false};
 
 namespace  {
 template <class T>
@@ -121,12 +122,11 @@ bool TileData::operator<(const TileData &o) const {
     return k < o.k;
 }
 
-quint64 MapFetcher::requestSlippyTiles(const QGeoCoordinate &ctl,
-                                     const QGeoCoordinate &cbr,
+quint64 MapFetcher::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                      const quint8 zoom,
                                      quint8 destinationZoom) {
     Q_D(MapFetcher);
-    return d->requestSlippyTiles(ctl, cbr, zoom, destinationZoom);
+    return d->requestSlippyTiles(crds, zoom, destinationZoom);
 }
 
 std::shared_ptr<QImage> MapFetcher::tile(quint64 id, const TileKey k)
@@ -157,6 +157,36 @@ QString MapFetcher::urlTemplate() const
     return d->m_urlTemplate;
 }
 
+void MapFetcher::setMaximumZoomLevel(int maxzl)
+{
+    Q_D(MapFetcher);
+    if (maxzl == d->m_maximumZoomLevel)
+        return;
+    d->m_maximumZoomLevel = maxzl;
+    emit maximumZoomLevelChanged();
+}
+
+int MapFetcher::maximumZoomLevel() const
+{
+    Q_D(const MapFetcher);
+    return d->m_maximumZoomLevel;
+}
+
+void MapFetcher::setOverzoom(bool enabled)
+{
+    Q_D(MapFetcher);
+    if (enabled == d->m_overzoom)
+        return;
+    d->m_overzoom = enabled;
+    emit overzoomChanged();
+}
+
+int MapFetcher::overzoom() const
+{
+    Q_D(const MapFetcher);
+    return d->m_overzoom;
+}
+
 QString MapFetcher::compoundTileCachePath()
 {
     return CompoundTileCache::cachePath();
@@ -176,13 +206,12 @@ QString MapFetcher::networkCachePath() {
 }
 
 // returns request id. 0 is invalid
-quint64 MapFetcher::requestCoverage(const QGeoCoordinate &ctl,
-                                    const QGeoCoordinate &cbr,
+quint64 MapFetcher::requestCoverage(const QList<QGeoCoordinate> &crds,
                                     const quint8 zoom,
                                     const bool clip)
 {
     Q_D(MapFetcher);
-    return d->requestCoverage(ctl, cbr, zoom, clip);
+    return d->requestCoverage(crds, zoom, clip);
 }
 
 void MapFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
@@ -250,6 +279,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
         }
     }
 #endif
+#if 1
     if (hasBorders) {
         auto left = [&h, &borders, &elevationFromPixel] () {
             if (!borders.at(Heightmap::Left))
@@ -349,7 +379,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
         bottomLeft();
         bottomRight();
     }
-
+#endif
     h.m_hasBorders = hasBorders;
     return h;
 }
@@ -452,16 +482,19 @@ std::shared_ptr<QImage> MapFetcherPrivate::tile(quint64 id, const TileKey k)
     return nullptr;
 }
 
-quint64 MapFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8 destinationZoom)
+quint64 MapFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
+                                              const quint8 zoom,
+                                              quint8 destinationZoom)
 {
     Q_Q(MapFetcher);
-    return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom, destinationZoom);
+    int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
+    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom);
 }
 
-quint64 MapFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
+quint64 MapFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &crds, const quint8 zoom, bool clip)
 {
     Q_Q(MapFetcher);
-    return NetworkManager::instance().requestCoverage(*q, ctl, cbr, zoom, clip);
+    return NetworkManager::instance().requestCoverage(*q, crds, zoom, clip);
 }
 
 QString MapFetcherPrivate::objectName() const
@@ -531,19 +564,19 @@ DEMFetcherPrivate::DEMFetcherPrivate() : MapFetcherPrivate() {}
 
 DEMFetcherPrivate::~DEMFetcherPrivate() {}
 
-quint64 DEMFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl,
-                                              const QGeoCoordinate &cbr,
+quint64 DEMFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                               const quint8 zoom,
-                                              quint8)
+                                              quint8 destinationZoom)
 {
     Q_Q(DEMFetcher);
-    return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom);
+    int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
+    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom);
 }
 
-quint64 DEMFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
+quint64 DEMFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &crds, const quint8 zoom, bool clip)
 {
     Q_Q(DEMFetcher);
-    return NetworkManager::instance().requestCoverage(*q, ctl, cbr, zoom, clip);
+    return NetworkManager::instance().requestCoverage(*q, crds, zoom, clip);
 }
 
 std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, const TileKey k)
@@ -557,16 +590,19 @@ std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, 
     return nullptr;
 }
 
-quint64 ASTCFetcherPrivate::requestSlippyTiles(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, quint8 destinationZoom)
+quint64 ASTCFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
+                                               const quint8 zoom,
+                                               quint8 destinationZoom)
 {
     Q_Q(ASTCFetcher);
-    return NetworkManager::instance().requestSlippyTiles(*q, ctl, cbr, zoom, destinationZoom);
+    int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
+    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom);
 }
 
-quint64 ASTCFetcherPrivate::requestCoverage(const QGeoCoordinate &ctl, const QGeoCoordinate &cbr, const quint8 zoom, bool clip)
+quint64 ASTCFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &crds, const quint8 zoom, bool clip)
 {
     Q_Q(ASTCFetcher);
-    return NetworkManager::instance().requestCoverage(*q, ctl, cbr, zoom, clip);
+    return NetworkManager::instance().requestCoverage(*q, crds, zoom, clip);
 }
 
 ASTCFetcher::ASTCFetcher(QObject *parent)

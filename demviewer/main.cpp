@@ -65,6 +65,11 @@
 #include <QStandardPaths>
 #include <QEasingCurve>
 
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonValue>
+
 #include <map>
 #include <QMap>
 #include <math.h>
@@ -88,7 +93,6 @@ float *lightingCurve() {
         initialized = true;
         for (int i = 0; i < 256; ++i) {
             float pct = float(i) / 255.;
-            //curve[i] = ec.valueForProgress(pct);
             curve[i] = 1.0 - ec.valueForProgress(pct);
             curve[i] = 2. * pct - curve[i];
         }
@@ -127,6 +131,119 @@ struct Origin {
     static QOpenGLShaderProgram *m_shader;
 };
 QOpenGLShaderProgram *Origin::m_shader{nullptr};
+
+class Utilities : public QObject {
+    Q_OBJECT
+public:
+    Utilities(QObject *parent=nullptr) : QObject(parent) {};
+    ~Utilities() override {
+        init();
+        if (m_logFile) {
+            m_logFile->write(QJsonDocument::fromVariant(m_requests).toJson());
+            m_logFile->close();
+        }
+    }
+
+    Q_INVOKABLE void setLogPath(const QString &path)
+    {
+        m_logPath = path;
+    }
+
+    Q_INVOKABLE void logRequest(MapFetcher *f,
+                                const QList<QGeoCoordinate> &coords,
+                                int zoom,
+                                int destZoom)
+    {
+        if (!f)
+            return;
+        QVariantMap request;
+        request["fetcher"] = f->objectName();
+        QVariantList crds;
+        for (auto c: coords) {
+            QVariantMap r;
+            r["latitude"] = c.latitude();
+            r["longitude"] = c.longitude();
+            crds.append(r);
+        }
+        request["coordinates"] = crds;
+        request["zoom"] = zoom;
+        request["destZoom"] = destZoom;
+        m_requests.append(request);
+    }
+
+    Q_INVOKABLE void replay(QVariantList fetchers,
+                            QString jsonPath)
+    {
+        if (fetchers.empty())
+            return;
+
+        if (jsonPath.startsWith("file://"))
+            jsonPath = jsonPath.mid(7);
+        QFileInfo fi(jsonPath);
+        if (!fi.exists() || !fi.isReadable()) {
+            qWarning() << "Utilities::replay: "<<jsonPath<< " does not exist or is not readable.";
+            return;
+        }
+
+        QFile f(jsonPath);
+        f.open(QIODevice::ReadOnly);
+        QJsonParseError err;
+        QJsonDocument d = QJsonDocument::fromJson(f.readAll(), &err);
+        if (err.error != QJsonParseError::NoError) {
+            qWarning() << "Utilities::replay: "<<jsonPath<< " does not parse -- "<<err.errorString();
+            return;
+        }
+
+        QMap<QString, QObject *> mFetchers;
+        for (auto f: qAsConst(fetchers)) {
+            QObject *fetcher = qvariant_cast<QObject *>(f);
+            mFetchers[fetcher->objectName()] = fetcher;
+        }
+
+        const QVariantList queries = d.toVariant().toList();
+        for (const auto &q: queries) {
+            auto m = q.toMap();
+            auto fetcher = m["fetcher"].toString();
+            const auto vcoordinates = m["coordinates"].toList();
+            auto zoom = m["zoom"].toInt();
+            auto destZoom = m["destZoom"].toInt();
+            QList<QGeoCoordinate> coordinates;
+            for (auto vc: vcoordinates) {
+                auto vcm = vc.toMap();
+                double lat = vcm["latitude"].toDouble();
+                double lon = vcm["longitude"].toDouble();
+                coordinates.append(QGeoCoordinate(lat, lon));
+            }
+
+            if (!mFetchers.contains(fetcher))
+                continue;
+            qobject_cast<MapFetcher *>(mFetchers[fetcher])->requestSlippyTiles(
+                            coordinates,
+                            zoom,
+                            destZoom);
+        }
+    }
+
+private:
+    void init()
+    {
+        if (m_logFile)
+            m_logFile->close();
+
+        if (m_logPath.isEmpty())
+            m_logFile = {};
+
+        QSharedPointer<QIODevice> f(new QFile (m_logPath));
+        f->open(QIODevice::WriteOnly | QIODevice::Truncate);
+        if (!f->isOpen() || !f->isWritable())
+            m_logFile = {};
+        m_logFile = f;
+    }
+
+    QString m_logPath;
+    QSharedPointer<QIODevice> m_logFile;
+    QVariantList m_requests;
+};
 
 class ArcBall : public QObject {
     Q_OBJECT
@@ -337,11 +454,7 @@ struct Tile
         if (m_initialized)
             return;
         m_initialized = true;
-        // vtx
-        // texCoords
-
         // VAOs
-        // QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao); // creates it when bound the first time
     }
 
@@ -444,8 +557,6 @@ struct Tile
                                                    : m_shader;
         if (interactive && joinTiles)
             shader = m_shaderJoinedDownsampledTextured;
-
-//        qDebug() << "Drawing "<< m_key << " with "<<shader->objectName();
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
         const auto tileMatrix = tileTransformation(origin);
@@ -725,7 +836,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_OBJECT
 
     Q_PROPERTY(QVariant interactor READ getArcball WRITE setArcball)
-    Q_PROPERTY(QVariant demUtilities READ getUtilities WRITE setUtilities)
+    Q_PROPERTY(QVariant demFetcher READ getDEMFetcher WRITE setDEMFetcher)
     Q_PROPERTY(QVariant rasterFetcher READ rasterFetcher WRITE setRasterFetcher)
     Q_PROPERTY(qreal elevationScale READ elevationScale WRITE setElevationScale)
     Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness)
@@ -735,6 +846,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(quint64 allocatedGraphicsBytes READ allocatedGraphicsBytes NOTIFY allocatedGraphicsBytesChanged)
     Q_PROPERTY(QVariant lightDirection READ lightDirection WRITE setLightDirection)
     Q_PROPERTY(bool offline READ offline WRITE setOffline NOTIFY offlineChanged)
+    Q_PROPERTY(bool logRequests READ logRequests WRITE setLogRequests NOTIFY logRequestsChanged)
     Q_PROPERTY(bool astcEnabled READ astc WRITE setAstc NOTIFY astcChanged)
     Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
@@ -774,22 +886,22 @@ public:
         return QVariant::fromValue(m_arcball);
     }
 
-    void setUtilities(QVariant value) {
-        if (m_utilities)
+    void setDEMFetcher(QVariant value) {
+        if (m_demFetcher)
             return;
-        m_utilities = qobject_cast<DEMFetcher *>(qvariant_cast<QObject *>(value));
-        if (m_utilities) {
-            QObject::connect(m_utilities, &DEMFetcher::heightmapReady,
+        m_demFetcher = qobject_cast<DEMFetcher *>(qvariant_cast<QObject *>(value));
+        if (m_demFetcher) {
+            QObject::connect(m_demFetcher, &DEMFetcher::heightmapReady,
                              this, &TerrainViewer::onDtmReady);
-            QObject::connect(m_utilities, &DEMFetcher::heightmapCoverageReady,
+            QObject::connect(m_demFetcher, &DEMFetcher::heightmapCoverageReady,
                              this, &TerrainViewer::onCoverageReady);
-            QObject::connect(m_utilities, &MapFetcher::requestHandlingFinished,
+            QObject::connect(m_demFetcher, &MapFetcher::requestHandlingFinished,
                              this, &TerrainViewer::onRequestHandlingFinished);
         }
     }
 
-    QVariant getUtilities() const {
-        return QVariant::fromValue(m_utilities);
+    QVariant getDEMFetcher() const {
+        return QVariant::fromValue(m_demFetcher);
     }
 
     void setRasterFetcher(QVariant value) {
@@ -834,7 +946,7 @@ public:
 
     void setJoinTiles(bool v) {
         m_joinTiles = v;
-        m_utilities->setBorders(m_joinTiles);
+        m_demFetcher->setBorders(m_joinTiles);
         interactiveUpdate();
     }
 
@@ -887,6 +999,17 @@ public:
             return;
         NetworkConfiguration::offline = offline;
         emit offlineChanged();
+    }
+
+    bool logRequests() const {
+        return NetworkConfiguration::logNetworkRequests;
+    }
+
+    void setLogRequests(bool enabled) {
+        if (NetworkConfiguration::logNetworkRequests == enabled)
+            return;
+        NetworkConfiguration::logNetworkRequests = enabled;
+        emit logRequestsChanged();
     }
 
     bool astc() const {
@@ -943,6 +1066,7 @@ signals:
     void astcChanged();
     void fastInteractionChanged();
     void autoRefinementChanged();
+    void logRequestsChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override {
@@ -986,16 +1110,16 @@ protected slots:
     }
 
     void onDtmReady(quint64 id, const TileKey k) {
-        m_newTiles[k] =  m_utilities->heightmap(id, k);
+        m_newTiles[k] =  m_demFetcher->heightmap(id, k);
         delayedUpdate();
     }
 
     void onCoverageReady(const quint64 id) {
-        if (!m_utilities)
+        if (!m_demFetcher)
             return;
         reset();
         m_newTiles.clear();
-        m_newTiles[TileKey{0,0,0}] = m_utilities->heightmapCoverage(id);
+        m_newTiles[TileKey{0,0,0}] = m_demFetcher->heightmapCoverage(id);
         delayedUpdate();
     }
 
@@ -1023,7 +1147,7 @@ protected slots:
 
 private:
     ArcBall *m_arcball{nullptr};
-    DEMFetcher *m_utilities{nullptr};
+    DEMFetcher *m_demFetcher{nullptr};
     ASTCFetcher *m_rasterFetcher{nullptr};
     bool m_recreateRenderer = false;
     bool m_reset = false;
@@ -1057,7 +1181,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
         m_arcballTransform = viewer->m_arcball->transformation();
 
     if (viewer) {
-        bool reset = viewer->m_reset;
+            bool reset = viewer->m_reset;
         viewer->m_reset = false;
 
         m_elevationScale = viewer->m_elevationScale;
@@ -1130,28 +1254,15 @@ int main(int argc, char *argv[])
     fmt.setProfile(QSurfaceFormat::CoreProfile);
     QSurfaceFormat::setDefaultFormat(fmt);
 
-//#ifdef Q_OS_LINUX
-//    qint64 pid = QCoreApplication::applicationPid();
-//    QProcess process;
-//    process.setProgram(QLatin1String("prlimit"));
-//    process.setArguments(QStringList() << "--pid" << QString::number(pid) << "--nofile=1048576");
-//    process.setStandardOutputFile(QProcess::nullDevice());
-//    process.setStandardErrorFile(QProcess::nullDevice());
-//    if (!process.startDetached(&pid)) {
-//        QLoggingCategory category("qmldebug");
-//        qCInfo(category) << QCoreApplication::applicationName()
-//                         <<": failed prlimit";
-//    }
-//#endif
-
     QGuiApplication app(argc, argv);
-
     QQmlApplicationEngine engine;
 
     qmlRegisterType<TerrainViewer>("DemViewer", 1, 0, "TerrainViewer");
-    DEMFetcher *utilities = new DEMFetcher(&engine, true);
-    utilities->setObjectName("DEM Fetcher");
-    utilities->setURLTemplate(QLatin1String("https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"));
+    DEMFetcher *demFetcher = new DEMFetcher(&engine, true);
+    demFetcher->setObjectName("DEM Fetcher");
+    demFetcher->setURLTemplate(QLatin1String("https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"));
+    demFetcher->setMaximumZoomLevel(15);
+    demFetcher->setOverzoom(true);
     ArcBall *arcball = new ArcBall(&engine);
     ASTCFetcher *rasterFetcher = new ASTCFetcher(&engine);
     rasterFetcher->setObjectName("Raster Fetcher");
@@ -1160,8 +1271,11 @@ int main(int argc, char *argv[])
 //    rasterFetcher->setURLTemplate(QLatin1String("http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}")); // sat only
 //    rasterFetcher->setURLTemplate(QLatin1String("https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"));
 
+    Utilities *utilities = new Utilities(&engine);
+    utilities->setLogPath("/tmp/demviewer.log");
 
     engine.rootContext()->setContextProperty("utilities", utilities);
+    engine.rootContext()->setContextProperty("demfetcher", demFetcher);
     engine.rootContext()->setContextProperty("arcball", arcball);
     engine.rootContext()->setContextProperty("mapFetcher", rasterFetcher);
 
@@ -1172,8 +1286,8 @@ int main(int argc, char *argv[])
             QCoreApplication::exit(-1);
     }, Qt::QueuedConnection);
 
-    qDebug() << "Network cache dir: " << MapFetcher::networkCachePath();
-    qDebug() << "Compound tile cache dir: " << MapFetcher::compoundTileCachePath();
+    qInfo() << "Network cache dir: " << MapFetcher::networkCachePath();
+    qInfo() << "Compound tile cache dir: " << MapFetcher::compoundTileCachePath();
 
     engine.load(url);
     QThread::currentThread()->setObjectName("Main Thread");

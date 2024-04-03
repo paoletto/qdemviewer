@@ -23,6 +23,7 @@ import QtQuick.Window 2.15
 import QtQuick.Controls 2.15 as QC2
 import QtQuick.Layouts 1.15
 import QtQuick.Controls 1.4 as QC1
+import QtQuick.Dialogs 1.3 as QQD
 import QtPositioning 5.15
 import QtLocation 5.15
 import Qt.labs.settings 1.1
@@ -89,6 +90,7 @@ QC2.ApplicationWindow {
         property alias lightPos: shadingSphere.pos
         property alias joinTiles: joinTilesMenuItem.checked
         property alias astc: astc.checked
+        property alias logging: logRequests.checked
         property int selectedProvider: 0
         property var modelTransformation
 
@@ -184,7 +186,7 @@ QC2.ApplicationWindow {
                         height: parent.height * 1.2
                         width: height
                         onClicked: {
-                            console.log("Delete ", index)
+                            console.log("Delete ", repeaterProviders.itemAt(index).text)
                             root.removeTemplate(index)
                         }
                     }
@@ -379,7 +381,37 @@ QC2.ApplicationWindow {
                 }
             }
         }
+        QC2.Menu {
+            title: qsTr("Misc")
+            QC2.MenuItem {
+                id: logNetworkRequests
+                text: qsTr("Log Network Requests")
+                checkable: true
+                checked: false
 
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Log retrieved tile URLs to the console"
+                QC2.ToolTip.delay: 300
+            }
+            QC2.MenuItem {
+                id: logRequests
+                text: qsTr("Log Requests")
+                checkable: true
+                checked: false
+
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Log requests to a JSON file, that can be loaded back"
+                QC2.ToolTip.delay: 300
+            }
+            QC2.MenuItem {
+                id: replayLog
+                text: qsTr("Replay")
+                checkable: false
+                onClicked: fileDialogReplay.open()
+            }
+        }
     }
 
     Component.onCompleted: {
@@ -441,63 +473,79 @@ QC2.ApplicationWindow {
                         name: "itemsoverlay"
                     }
 
-                    property var selectionTL: undefined
-                    property var selectionBR: undefined
+                    property var selectionPolygon: []
+                    property var displayedSelectionPolygon: []
 
-                    MapRectangle {
-                        topLeft: (parent.selectionTL !== undefined) ? parent.selectionTL : QtPositioning.coordinate()
-                        bottomRight: (parent.selectionBR !== undefined) ? parent.selectionBR : QtPositioning.coordinate()
-                        visible: topLeft !== undefined && bottomRight !== undefined
+                    MapPolygon {
+                        visible: path.length > 2
                         color: "transparent"
                         border.color: "red"
+                        path: (overlay.displayedSelectionPolygon.length != 0)
+                              ? overlay.displayedSelectionPolygon
+                              : overlay.selectionPolygon
                     }
+
+
 
                     MouseArea {
                         anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton
+                        acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onPressed: {
                             if (mouse.button == Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier) {
                                 mouse.accepted = true
                                 parent.gesture.enabled = false
+                                let selection = overlay.displayedSelectionPolygon
+                                selection.push(
+                                            overlay.toCoordinate(Qt.point(mouse.x, mouse.y)))
+                                overlay.displayedSelectionPolygon = selection
+                            } else if (mouse.button == Qt.LeftButton && mouse.modifiers & Qt.ControlModifier) {
 
-                                parent.selectionBR = undefined
-                                parent.selectionTL = parent.toCoordinate(Qt.point(mouse.x, mouse.y))
-
-                            }
-                        }
-                        onPositionChanged: {
-                            if (mouse.buttons & Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier) {
-                                var crd = parent.toCoordinate(Qt.point(mouse.x, mouse.y))
-                                parent.selectionBR = crd
+                            } else if (mouse.button == Qt.RightButton) {
+                                mouse.accepted = true
+                                overlay.selectionPolygon = overlay.displayedSelectionPolygon
+                                overlay.displayedSelectionPolygon = []
+                                if (mouse.modifiers & Qt.ShiftModifier &&
+                                    overlay.selectionPolygon.length > 2) {
+                                    fireQuery()
+                                } else {
+                                    overlay.selectionPolygon = []
+                                }
                             }
                         }
 
                         onReleased: {
                             parent.gesture.enabled = true
-                            // trigger Map Data fetching
+                        }
+
+                        function fireQuery() {
                             var res;
                             if (tileMode.checked) {
-                                res = utilities.requestSlippyTiles(parent.selectionTL,
-                                                             parent.selectionBR,
+                                res = demfetcher.requestSlippyTiles(parent.selectionPolygon,
                                                              zlslider.value,
                                                              zlslider.value)
                                 console.log("Request ",res,"issued")
+                                if (logRequests.checked)
+                                    utilities.logRequest(demfetcher,
+                                                         parent.selectionPolygon,
+                                                         zlslider.value, zlslider.value)
                                 if (rasterEnabled.checked) {
-                                    res = mapFetcher.requestSlippyTiles(parent.selectionTL,
-                                                                  parent.selectionBR,
+                                    res = mapFetcher.requestSlippyTiles(
+                                                                  parent.selectionPolygon,
                                                                   zlMapSlider.value,
                                                                   zlslider.value)
                                     console.log("Request ",res,"issued")
+                                    if (logRequests.checked)
+                                        utilities.logRequest(mapFetcher,
+                                                             parent.selectionPolygon,
+                                                             zlMapSlider.value, zlslider.value)
                                 }
                             } else {
-                                res = utilities.requestCoverage(parent.selectionTL,
-                                                                 parent.selectionBR,
+                                res = demfetcher.requestCoverage(parent.selectionPolygon,
                                                                  zlslider.value,
                                                                  /*clip*/ clipInCoverage.checked)
                                 console.log("Request ",res,"issued")
                                 if (rasterEnabled.checked) {
-                                    res = mapFetcher.requestCoverage(parent.selectionTL,
-                                                               parent.selectionBR,
+                                    res = mapFetcher.requestCoverage(parent.selectionPolygon,
                                                                zlslider.value,
                                                                /*clip*/ clipInCoverage.checked)
                                     console.log("Request ",res,"issued")
@@ -527,14 +575,55 @@ QC2.ApplicationWindow {
                             QC2.Slider {
                                 id: zlslider
                                 from: 0
-                                to: 15
+                                to: 19
                                 value: 9
+                                property int maxNativeZL: 15
+                                property real stepWidth: 1.0 / (to - from)
                                 stepSize: 1
                                 Layout.fillWidth: true
+
+                                background: Item {
+                                    id: zlslibg
+                                    x: zlslider.leftPadding
+                                    y: zlslider.topPadding + zlslider.availableHeight / 2. - height / 2.
+                                    width: parent.width
+                                    height: implicitHeight
+                                    anchors.alignWhenCentered: false
+
+                                    Rectangle {
+                                        id: bgSli
+                                        implicitWidth: 200
+                                        implicitHeight: 4
+                                        width: zlslider.availableWidth * zlslider.stepWidth * (zlslider.maxNativeZL)
+                                        height: implicitHeight
+                                        radius: 2
+                                        color: zlslider.handle.children[0].color
+                                        opacity: 0.4
+                                    }
+                                    Rectangle {
+                                        id: bgSliOver
+                                        anchors.left: bgSli.right
+                                        implicitWidth: 200
+                                        implicitHeight: 4
+                                        width: zlslider.availableWidth - bgSli.width
+                                        height: implicitHeight
+                                        radius: 2
+                                        color: Qt.rgba(1,0.2,0.2,1)
+                                        opacity: 0.7
+                                    }
+                                    Rectangle {
+                                        width: zlslider.visualPosition * zlslider.availableWidth
+                                        height: bgSli.height
+                                        color: zlslider.handle.children[0].color
+                                        radius: 2
+                                    }
+
+                                }
+
                                 QC2.ToolTip {
                                     parent: zlslider.handle
                                     visible: zlslider.pressed
-                                    text: zlslider.value.toFixed(0)
+                                    text: zlslider.value.toFixed(0) + ((zlslider.value > 15) ? "(magnified)" : "")
                                 }
                             }
                         }
@@ -578,7 +667,7 @@ QC2.ApplicationWindow {
                         Timer {
                             id: hiderTimer
                             repeat: false
-                            interval: 2000
+                            interval: 4000
                             running: false
                             onTriggered: tips.hide()
                         }
@@ -587,9 +676,9 @@ QC2.ApplicationWindow {
                         }
 
                         anchors.centerIn: parent
-                        color: Qt.rgba(0.5,0.5,0.5,0.5)
+                        color: Qt.rgba(0.55,0.6,0.6,0.65)
                         radius: 5
-                        width: 300
+                        width: 550
                         height: 40
                         visible: opacity !== 0
                         Behavior on opacity {
@@ -598,7 +687,8 @@ QC2.ApplicationWindow {
 
                         Text {
                             anchors.centerIn: parent
-                            text: "Shift + Left click to select a map area"
+                            text: "Shift + Left click to draw a map area. Shift + Right click to commit."
+                            font.bold: true
                         }
                     }
                 }
@@ -612,7 +702,7 @@ QC2.ApplicationWindow {
                     id: viewer
                     anchors.fill: parent
                     interactor: arcball
-                    demUtilities: utilities
+                    demFetcher: demfetcher
                     rasterFetcher: mapFetcher
                     joinTiles: joinTilesMenuItem.checked
                     elevationScale: elevationSlider.value
@@ -620,6 +710,7 @@ QC2.ApplicationWindow {
                     tessellationDirection: invertTessDirection.checked
                     lightDirection: shadingSphere.pos
                     offline: offline.checked
+                    logRequests: logNetworkRequests.checked
                     astcEnabled: astc.checked
                     fastInteraction: fastInteractionMenuItem.checked
                     autoRefinement: autoRefinementMenuItem.checked
@@ -647,10 +738,7 @@ QC2.ApplicationWindow {
                         onPositionChanged: arcball.moved(Qt.point(mouse.x, mouse.y))
                         onReleased: arcball.released()
                         onWheel: {
-//                            if (wheel.modifiers & Qt.ControlModifier)
-                            {
-                                arcball.zoom(wheel.angleDelta.y / 120.0);
-                            }
+                            arcball.zoom(wheel.angleDelta.y / 120.0);
                         }
                     }
                 }
@@ -777,4 +865,18 @@ QC2.ApplicationWindow {
             standardButtons: QC2.DialogButtonBox.Ok | QC2.DialogButtonBox.Cancel
         }
     } // addVideoDialog
+    QQD.FileDialog {
+        id: fileDialogReplay
+        nameFilters: []
+        title: "Please choose a replay json file"
+        selectExisting: true
+        selectFolder: false
+        onAccepted: {
+            fileDialogReplay.close()
+            var path = String(fileDialogReplay.fileUrl)
+            utilities.replay([mapFetcher, demfetcher], path)
+        }
+        onRejected: {
+        }
+    }
 }

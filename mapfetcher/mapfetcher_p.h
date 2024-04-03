@@ -93,7 +93,7 @@ protected:
         bool operator()(const ThreadedJob * l, const ThreadedJob * r) const;
     };
     std::priority_queue<ThreadedJob *, std::vector<ThreadedJob *>,  JobComparator> m_jobs;
-    QObject *m_currentJob{nullptr};
+    QAtomicPointer<QObject> m_currentJob{nullptr};
     QThread m_thread;
 };
 
@@ -147,19 +147,19 @@ public:
     ~MapFetcherPrivate() override;
 
     std::shared_ptr<QImage> tile(quint64 id, const TileKey k);
-    virtual quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
-                                    const QGeoCoordinate &cbr,
+    virtual quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                     const quint8 zoom,
                                     quint8 destinationZoom);
 
-    virtual quint64 requestCoverage(const QGeoCoordinate &ctl,
-                                    const QGeoCoordinate &cbr,
+    virtual quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                                     const quint8 zoom,
                                     bool clip);
 
     QString objectName() const;
 
     QString m_urlTemplate;
+    int m_maximumZoomLevel{19};
+    bool m_overzoom{false};
 
     std::map<quint64, TileCache> m_tileCache;
     std::map<quint64, std::shared_ptr<QImage>> m_coverages;
@@ -174,13 +174,11 @@ public:
     DEMFetcherPrivate();
     ~DEMFetcherPrivate() override;
 
-    quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+    quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             quint8) override;
 
-    quint64 requestCoverage(const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+    quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             bool clip) override;
 
@@ -212,13 +210,11 @@ public:
     ~ASTCFetcherPrivate() override = default;
 
     std::shared_ptr<CompressedTextureData> tileASTC(quint64 id, const TileKey k);
-    quint64 requestSlippyTiles(const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+    quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             quint8 destinationZoom) override;
 
-    quint64 requestCoverage(const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+    quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             bool clip) override;
 
@@ -241,14 +237,12 @@ public:
     ~MapFetcherWorker() override = default;
 
     void requestSlippyTiles(quint64 requestId,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             quint8 destinationZoom);
 
     void requestCoverage(quint64 requestId,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false);
 
@@ -287,7 +281,10 @@ public:
 
     std::shared_ptr<QImage> tile(quint64 requestId, const TileKey &k);
     std::shared_ptr<QImage> peekTile(quint64 requestId, const TileKey &k);
-    virtual void trackNeighbors(quint64, const TileKey &, Heightmap::Neighbors) {}
+    virtual void trackNeighbors(quint64,
+                                const TileKey &,
+                                Heightmap::Neighbors,
+                                quint8) {}
     QString objectName() const;
 
     QString m_urlTemplate;
@@ -295,8 +292,7 @@ public:
     std::map<quint64, TileCache> m_tileCache;
     std::map<quint64, TileCacheCache> m_tileCacheCache;
 
-    std::map<quint64, std::tuple<QGeoCoordinate,  // tl
-                                 QGeoCoordinate,  // br
+    std::map<quint64, std::tuple<QList<QGeoCoordinate>,  // polygon
                                  quint8,          // zoom
                                  quint64,         // numTiles
                                  bool             // clip
@@ -305,8 +301,8 @@ public:
 
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
     MapFetcher *m_fetcher{nullptr};
-    std::unordered_map<quint64, quint64> m_request2remainingTiles;
-    std::unordered_map<quint64, quint64> m_request2remainingHandlers;
+    std::unordered_map<quint64, qint64> m_request2remainingTiles;
+    std::unordered_map<quint64, qint64> m_request2remainingHandlers;
     std::unordered_map<quint64, QString> m_request2urlTemplate;
     std::unordered_map<quint64, quint64> m_request2sourceZoom;
     QString m_diskCachePath;
@@ -352,12 +348,15 @@ public:
     DEMFetcherWorkerPrivate();
     ~DEMFetcherWorkerPrivate() override = default;
 
-    void trackNeighbors(quint64 id, const TileKey &k, Heightmap::Neighbors n) override;
+    void trackNeighbors(quint64 id,
+                        const TileKey &k,
+                        Heightmap::Neighbors n,
+                        quint8 destinationZoom) override;
 
     std::map<quint64, TileNeighborsMap> m_request2Neighbors;
     std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
-    std::unordered_map<quint64, quint64> m_request2remainingDEMHandlers;
+    std::unordered_map<quint64, qint64> m_request2remainingDEMHandlers;
     bool m_borders{false};
 };
 
@@ -404,7 +403,7 @@ public:
     ~ASTCFetcherWorkerPrivate() override = default;
 
     bool m_forwardUncompressed{false};
-    std::unordered_map<quint64, quint64> m_request2remainingASTCHandlers;
+    std::unordered_map<quint64, qint64> m_request2remainingASTCHandlers;
     QSharedPointer<ThreadedJobQueue> m_workerASTC;
 };
 
@@ -419,43 +418,38 @@ public:
 public slots:
     void requestSlippyTiles(MapFetcher *mapFetcher,
                                quint64 requestId,
-                               const QGeoCoordinate &ctl,
-                               const QGeoCoordinate &cbr,
+                               const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
                                quint8 destinationZoom);
 
     void requestCoverage(MapFetcher *mapFetcher,
                             quint64 requestId,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false);
 
 
     void requestSlippyTiles(DEMFetcher *demFetcher,
                                quint64 requestId,
-                               const QGeoCoordinate &ctl,
-                               const QGeoCoordinate &cbr,
-                               const quint8 zoom);
+                               const QList<QGeoCoordinate> &crds,
+                               const quint8 zoom,
+                               quint8 destinationZoom);
 
     void requestCoverage(DEMFetcher *demFetcher,
                             quint64 requestId,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false);
 
     void requestSlippyTiles(ASTCFetcher *fetcher,
                             quint64 requestId,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             quint8 destinationZoom);
 
     void requestCoverage(ASTCFetcher *fetcher,
                             quint64 requestId,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false);
 
@@ -508,94 +502,84 @@ public:
     void operator=(NetworkManager const&) = delete;
 
     quint64 requestSlippyTiles(MapFetcher &mapFetcher,
-                               const QGeoCoordinate &ctl,
-                               const QGeoCoordinate &cbr,
+                               const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
                                const quint8 destinationZoom) {
         const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(MapFetcher *, &mapFetcher)
                                   , Q_ARG(qulonglong, requestId)
-                                  , Q_ARG(QGeoCoordinate, ctl)
-                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(uchar, destinationZoom));
         return requestId;
     }
 
     quint64 requestCoverage(MapFetcher &mapFetcher,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false) {
         auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestCoverage", Qt::QueuedConnection
                                   , Q_ARG(MapFetcher *, &mapFetcher)
                                   , Q_ARG(qulonglong, requestId)
-                                  , Q_ARG(QGeoCoordinate, ctl)
-                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(bool, clip));
         return requestId;
     }
 
     quint64 requestSlippyTiles(DEMFetcher &demFetcher,
-                               const QGeoCoordinate &ctl,
-                               const QGeoCoordinate &cbr,
-                               const quint8 zoom) {
+                               const QList<QGeoCoordinate> &crds,
+                               const quint8 zoom,
+                               const quint8 destinationZoom) {
         const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(DEMFetcher *, &demFetcher)
                                   , Q_ARG(qulonglong, requestId)
-                                  , Q_ARG(QGeoCoordinate, ctl)
-                                  , Q_ARG(QGeoCoordinate, cbr)
-                                  , Q_ARG(uchar, zoom));
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
+                                  , Q_ARG(uchar, zoom)
+                                  , Q_ARG(uchar, destinationZoom));
         return requestId;
     }
 
     quint64 requestCoverage(DEMFetcher &demFetcher,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false) {
         auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestCoverage", Qt::QueuedConnection
                                   , Q_ARG(DEMFetcher *, &demFetcher)
                                   , Q_ARG(qulonglong, requestId)
-                                  , Q_ARG(QGeoCoordinate, ctl)
-                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(bool, clip));
         return requestId;
     }
 
     quint64 requestSlippyTiles(ASTCFetcher &fetcher,
-                               const QGeoCoordinate &ctl,
-                               const QGeoCoordinate &cbr,
+                               const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
                                const quint8 destinationZoom) {
         const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(ASTCFetcher *, &fetcher)
                                   , Q_ARG(qulonglong, requestId)
-                                  , Q_ARG(QGeoCoordinate, ctl)
-                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(uchar, destinationZoom));
         return requestId;
     }
 
     quint64 requestCoverage(ASTCFetcher &fetcher,
-                            const QGeoCoordinate &ctl,
-                            const QGeoCoordinate &cbr,
+                            const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
                             const bool clip = false) {
         auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestCoverage", Qt::QueuedConnection
                                   , Q_ARG(ASTCFetcher *, &fetcher)
                                   , Q_ARG(qulonglong, requestId)
-                                  , Q_ARG(QGeoCoordinate, ctl)
-                                  , Q_ARG(QGeoCoordinate, cbr)
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(bool, clip));
         return requestId;
@@ -649,7 +633,7 @@ protected:
 
     QNetworkReply *m_reply{nullptr};
     MapFetcherWorker *m_mapFetcher{nullptr};
-    bool m_computeHash{true};
+    bool m_computeHash{true}; // it's currently only false for DEM, so it tells whether it is a DEM image
 };
 
 class CachedCompoundTileHandler : public ThreadedJob
@@ -757,4 +741,8 @@ private:
     bool m_forwardUncompressed{false};
 };
 
+inline uint qHash (const QPoint & key)
+{
+    return qHash (QPair<int,int>(key.x(), key.y()) );
+}
 #endif
