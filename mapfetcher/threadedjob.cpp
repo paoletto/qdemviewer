@@ -454,10 +454,7 @@ void ThreadedJobQueue::schedule(ThreadedJobData *handler) {
     m_jobs.push(handler);
 
     if (!m_currentJob) {
-        qDebug() << "ThreadedJobQueue::schedule "<<QThread::currentThread()->objectName() << " NEXTING";
         next();
-    } else {
-        qDebug() << "ThreadedJobQueue::schedule "<<QThread::currentThread()->objectName() << " skipping";
     }
 }
 
