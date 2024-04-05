@@ -37,13 +37,13 @@
 #include <unordered_set>
 #include <private/qtexturefiledata_p.h>
 
-using HeightmapCache = std::map<TileKey, std::shared_ptr<Heightmap>>;
-using TileNeighborsMap = std::map<TileKey,
+using HeightmapCache = std::unordered_map<TileKey, std::shared_ptr<Heightmap>>;
+using TileNeighborsMap = std::unordered_map<TileKey,
                             std::pair< Heightmap::Neighbors,
                                        std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>>>;
-using TileCache = std::map<TileKey, std::shared_ptr<QImage>>;
-using TileCacheCache = std::map<TileKey, std::set<TileData>>;
-using TileCacheASTC = std::map<TileKey, std::shared_ptr<CompressedTextureData>>;
+using TileCache = std::unordered_map<TileKey, std::shared_ptr<QImage>>;
+using TileCacheCache = std::unordered_map<TileKey, std::set<TileData>>;
+using TileCacheASTC = std::unordered_map<TileKey, std::shared_ptr<CompressedTextureData>>;
 
 //struct GeoTileSpec {
 //    QGeoTileSpec ts;
@@ -307,15 +307,15 @@ public:
 
     QString m_urlTemplate;
     ThrottledNetworkFetcher m_nm;
-    std::map<quint64, TileCache> m_tileCache;
-    std::map<quint64, TileCacheCache> m_tileCacheCache;
+    std::unordered_map<quint64, TileCache> m_tileCache;
+    std::unordered_map<quint64, TileCacheCache> m_tileCacheCache;
 
-    std::map<quint64, std::tuple<QList<QGeoCoordinate>,  // polygon
+    std::unordered_map<quint64, std::tuple<QList<QGeoCoordinate>,  // polygon
                                  quint8,          // zoom
                                  quint64,         // numTiles
                                  bool             // clip
                                 >> m_requests;
-    std::map<quint64, std::set<TileData>> m_tileSets;
+    std::unordered_map<quint64, std::set<TileData>> m_tileSets;
 
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
     MapFetcher *m_fetcher{nullptr};
@@ -371,9 +371,9 @@ public:
                         Heightmap::Neighbors n,
                         quint8 destinationZoom) override;
 
-    std::map<quint64, TileNeighborsMap> m_request2Neighbors;
-    std::map<quint64, HeightmapCache> m_heightmapCache;
-    std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
+    std::unordered_map<quint64, TileNeighborsMap> m_request2Neighbors;
+    std::unordered_map<quint64, HeightmapCache> m_heightmapCache;
+    std::unordered_map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
     std::unordered_map<quint64, qint64> m_request2remainingDEMHandlers;
     bool m_borders{false};
 };

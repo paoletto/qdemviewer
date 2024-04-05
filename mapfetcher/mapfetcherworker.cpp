@@ -455,6 +455,8 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
     if (destError && onErrorSlot)
         connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), destError, onErrorSlot);
     connect(reply, &QNetworkReply::finished, this, &ThrottledNetworkFetcher::onFinished);
+//    connect(reply, &QNetworkReply::destroyed,
+//            this, &ThrottledNetworkFetcher::onFinished, Qt::QueuedConnection);
     ++m_active;
 }
 

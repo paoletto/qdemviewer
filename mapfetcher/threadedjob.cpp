@@ -454,7 +454,10 @@ void ThreadedJobQueue::schedule(ThreadedJobData *handler) {
     m_jobs.push(handler);
 
     if (!m_currentJob) {
+        qDebug() << "ThreadedJobQueue::schedule "<<QThread::currentThread()->objectName() << " NEXTING";
         next();
+    } else {
+        qDebug() << "ThreadedJobQueue::schedule "<<QThread::currentThread()->objectName() << " skipping";
     }
 }
 
@@ -467,15 +470,16 @@ void ThreadedJobQueue::next() {
     }
     auto jobData = m_jobs.top();
     auto job = ThreadedJob::fromData(jobData);
-    job->move2thread(m_thread);
-    connect(job, &ThreadedJob::finished,
-            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
-    m_currentJob = job;
-    m_jobs.pop();
-    if (!m_currentJob) {// impossible?
+    if (!job) {// impossible?
         qWarning() << "ThreadedJobQueue::next : null next job!";
         next();
-    } else  {
+    }  else  {
+        job->move2thread(m_thread);
+        connect(job, &ThreadedJob::destroyed,
+                this, &ThreadedJobQueue::next, Qt::QueuedConnection);
+        m_currentJob = job;
+        m_jobs.pop();
+
         if (!m_thread.isRunning())
             m_thread.start();
 
