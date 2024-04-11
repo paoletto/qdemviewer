@@ -22,30 +22,13 @@
 #define ASTCENCODER_P_H
 
 #include <QImage>
-#include <QBuffer>
 #include <QByteArray>
-
-#include <QThreadPool>
-#include <QThread>
-
-#include <QStandardPaths>
-#include <QDirIterator>
-#include <QDir>
-#include <QFileInfo>
-#include <QCryptographicHash>
-
-#include <iostream>
-#include <string>
-#include <cstdlib>
-#include <vector>
-#include <map>
 #include <private/qtexturefiledata_p.h>
-#include <private/qtexturefilereader_p.h>
 
-#include "astccache.h"
-#include "astcenc.h"
+
 
 // to use a single astc context
+struct ASTCEncoderPrivate;
 class ASTCEncoder
 {
 public:
@@ -68,41 +51,7 @@ private:
 
     ~ASTCEncoder();
 
-    struct astcenc_context_deleter {
-        static inline void cleanup(astcenc_context *c)
-        {
-            if (c)
-                astcenc_context_free(c);
-            c = nullptr;
-        }
-    };
-
-    QScopedPointer<astcenc_context, astcenc_context_deleter> m_ctx;
-    astcenc_swizzle swizzle;
-    astcenc_config config;
-    QString m_cacheDirPath;
-    ASTCCache m_tileCache;
-
-    static const astcenc_profile profile = ASTCENC_PRF_LDR;
-
-//    static const float ASTCENC_PRE_FASTEST = 0.0f;
-//    static const float ASTCENC_PRE_FAST = 10.0f;
-//    static const float ASTCENC_PRE_MEDIUM = 60.0f;
-//    static const float ASTCENC_PRE_THOROUGH = 98.0f;
-//    static const float ASTCENC_PRE_VERYTHOROUGH = 99.0f;
-//    static const float ASTCENC_PRE_EXHAUSTIVE = 100.0f;
-
-    constexpr static const float quality = 85.0f;
-
-    static const unsigned int thread_count = 1;
-    static const unsigned int block_x = 8;
-    static const unsigned int block_y = 8;
-//    static const unsigned int block_x = 4;
-//    static const unsigned int block_y = 4;
-//    static const unsigned int block_x = 6;
-//    static const unsigned int block_y = 6;
-    static const unsigned int block_z = 1;
-    static const uint32_t ASTC_MAGIC_ID = 0x5CA1AB13;
+    QScopedPointer<ASTCEncoderPrivate> d;
 
 public:
     ASTCEncoder(ASTCEncoder const&)            = delete;

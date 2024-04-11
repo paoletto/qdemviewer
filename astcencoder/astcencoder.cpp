@@ -19,6 +19,98 @@
 ****************************************************************************/
 
 #include "astcencoder.h"
+#include "astccache.h"
+
+#include <iostream>
+#include <string>
+#include <cstdlib>
+#include <vector>
+#include <map>
+#include <QThreadPool>
+#include <QThread>
+
+#include <QStandardPaths>
+#include <QDirIterator>
+#include <QDir>
+#include <QFileInfo>
+#include <QCryptographicHash>
+#include <QScopedPointer>
+#include <QBuffer>
+
+#include <private/qtexturefilereader_p.h>
+
+
+#include "astcenc.h"
+
+struct ASTCEncoderPrivate {
+    ASTCEncoderPrivate()
+    : m_cacheDirPath(QStringLiteral("%1/astcCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)))
+    , m_tileCache(m_cacheDirPath)
+    {
+        swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
+                    ASTCENC_SWZ_B,
+                    ASTCENC_SWZ_G,
+                    ASTCENC_SWZ_R,
+                    ASTCENC_SWZ_A
+                  };
+
+        astcenc_error status;
+
+        config.block_x = block_x;
+        config.block_y = block_y;
+        config.profile = profile;
+
+        status = astcenc_config_init(profile, block_x, block_y, block_z, quality, 0, &config);
+        if (status != ASTCENC_SUCCESS) {
+            qWarning() << "ERROR: Codec config init failed: " << astcenc_get_error_string(status);
+            qFatal("Terminating");
+        }
+
+        astcenc_context *c;
+        status = astcenc_context_alloc(&config, thread_count, &c);
+        m_ctx.reset(c);
+        if (status != ASTCENC_SUCCESS) {
+            qWarning() << "ERROR: Codec context alloc failed: "<< astcenc_get_error_string(status);
+            qFatal("Terminating");
+        }
+    }
+
+    struct astcenc_context_deleter {
+        static inline void cleanup(astcenc_context *c)
+        {
+            if (c)
+                astcenc_context_free(c);
+            c = nullptr;
+        }
+    };
+
+    QScopedPointer<astcenc_context, astcenc_context_deleter> m_ctx;
+    astcenc_swizzle swizzle;
+    astcenc_config config;
+    QString m_cacheDirPath;
+    ASTCCache m_tileCache;
+
+    static const astcenc_profile profile = ASTCENC_PRF_LDR;
+
+//    static const float ASTCENC_PRE_FASTEST = 0.0f;
+//    static const float ASTCENC_PRE_FAST = 10.0f;
+//    static const float ASTCENC_PRE_MEDIUM = 60.0f;
+//    static const float ASTCENC_PRE_THOROUGH = 98.0f;
+//    static const float ASTCENC_PRE_VERYTHOROUGH = 99.0f;
+//    static const float ASTCENC_PRE_EXHAUSTIVE = 100.0f;
+
+    constexpr static const float quality = 85.0f;
+
+    static const unsigned int thread_count = 1;
+    static const unsigned int block_x = 8;
+    static const unsigned int block_y = 8;
+//    static const unsigned int block_x = 4;
+//    static const unsigned int block_y = 4;
+//    static const unsigned int block_x = 6;
+//    static const unsigned int block_y = 6;
+    static const unsigned int block_z = 1;
+    static const uint32_t ASTC_MAGIC_ID = 0x5CA1AB13;
+};
 
 namespace {
 bool isEven(const QSize &s) {
@@ -45,8 +137,8 @@ ASTCEncoder &ASTCEncoder::instance()
 
 QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
     // Compute the number of ASTC blocks in each dimension
-    unsigned int block_count_x = (ima.width() + block_x - 1) / block_x;
-    unsigned int block_count_y = (ima.height() + block_y - 1) / block_y;
+    unsigned int block_count_x = (ima.width() + d->block_x - 1) / d->block_x;
+    unsigned int block_count_y = (ima.height() + d->block_y - 1) / d->block_y;
 
     // Compress the image
     astcenc_image image;
@@ -64,9 +156,9 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
     data.resize(comp_len);
 
 
-    astcenc_error status = astcenc_compress_image(m_ctx.get(),
+    astcenc_error status = astcenc_compress_image(d->m_ctx.get(),
                                                   &image,
-                                                  &swizzle,
+                                                  &d->swizzle,
                                                   reinterpret_cast<uint8_t *>(data.data()),
                                                   comp_len,
                                                   0);
@@ -76,13 +168,13 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
     }
 
     astc_header hdr;
-    hdr.magic[0] =  ASTC_MAGIC_ID        & 0xFF;
-    hdr.magic[1] = (ASTC_MAGIC_ID >>  8) & 0xFF;
-    hdr.magic[2] = (ASTC_MAGIC_ID >> 16) & 0xFF;
-    hdr.magic[3] = (ASTC_MAGIC_ID >> 24) & 0xFF;
+    hdr.magic[0] =  d->ASTC_MAGIC_ID        & 0xFF;
+    hdr.magic[1] = (d->ASTC_MAGIC_ID >>  8) & 0xFF;
+    hdr.magic[2] = (d->ASTC_MAGIC_ID >> 16) & 0xFF;
+    hdr.magic[3] = (d->ASTC_MAGIC_ID >> 24) & 0xFF;
 
-    hdr.block_x = static_cast<uint8_t>(block_x);
-    hdr.block_y = static_cast<uint8_t>(block_y);
+    hdr.block_x = static_cast<uint8_t>(d->block_x);
+    hdr.block_y = static_cast<uint8_t>(d->block_y);
     hdr.block_z = static_cast<uint8_t>(1);
 
     hdr.dim_x[0] =  image.dim_x        & 0xFF;
@@ -151,7 +243,7 @@ QImage ASTCEncoder::halve(const QImage &src) { // TODO: change into move once m_
 }
 
 int ASTCEncoder::blockSize() {
-    return block_x;
+    return ASTCEncoderPrivate::block_x;
 }
 
 QTextureFileData ASTCEncoder::fromCached(QByteArray &cached) {
@@ -173,10 +265,10 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
         md5 = ch.result();
     }
     QSize size = ima.size();
-    QByteArray cached = m_tileCache.tile(md5,
-                                         block_x,
-                                         block_y,
-                                         quality,
+    QByteArray cached = d->m_tileCache.tile(md5,
+                                         d->block_x,
+                                         d->block_y,
+                                         d->quality,
                                          size.width(),
                                          size.height());
     QImage halved;
@@ -187,10 +279,10 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
             size = QSize(size.width() / 2, size.height() / 2);
             if (size.width() < ASTCEncoder::blockSize())
                 break;
-            cached = m_tileCache.tile(md5,
-                                      block_x,
-                                      block_y,
-                                      quality,
+            cached = d->m_tileCache.tile(md5,
+                                      d->block_x,
+                                      d->block_y,
+                                      d->quality,
                                       size.width(),
                                       size.height());
             if (!cached.size()) { // generateMips was probably aborted during operation. Recover the missing mips
@@ -205,10 +297,10 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
                     QByteArray compressed = ASTCEncoder::instance().compress(halved).data();
                     if (!next.size())
                         next = compressed;
-                    m_tileCache.insert(md5,
-                                       block_x,
-                                       block_y,
-                                       quality,
+                    d->m_tileCache.insert(md5,
+                                       d->block_x,
+                                       d->block_y,
+                                       d->quality,
                                        halved.size().width(),
                                        halved.size().height(),
                                        compressed);
@@ -221,10 +313,10 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
         }
     } else {
         out.emplace_back(ASTCEncoder::instance().compress(ima));
-        m_tileCache.insert(md5,
-                           block_x,
-                           block_y,
-                           quality,
+        d->m_tileCache.insert(md5,
+                           d->block_x,
+                           d->block_y,
+                           d->quality,
                            size.width(),
                            size.height(),
                            out.back().data());
@@ -235,10 +327,10 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
                 break;
             halved = ASTCEncoder::halve(halved);
             out.emplace_back(ASTCEncoder::instance().compress(halved));
-            m_tileCache.insert(md5,
-                               block_x,
-                               block_y,
-                               quality,
+            d->m_tileCache.insert(md5,
+                               d->block_x,
+                               d->block_y,
+                               d->quality,
                                size.width(),
                                size.height(),
                                out.back().data());
@@ -247,39 +339,10 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
 }
 
 bool ASTCEncoder::isCached(const QByteArray &md5) {
-    return m_tileCache.contains(md5, block_x, block_y, quality);
+    return d->m_tileCache.contains(md5, d->block_x, d->block_y, d->quality);
 }
 
-ASTCEncoder::ASTCEncoder()
-    : m_cacheDirPath(QStringLiteral("%1/astcCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)))
-    , m_tileCache(m_cacheDirPath) {
-    swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
-                ASTCENC_SWZ_B,
-                ASTCENC_SWZ_G,
-                ASTCENC_SWZ_R,
-                ASTCENC_SWZ_A
-              };
-
-    astcenc_error status;
-
-    config.block_x = block_x;
-    config.block_y = block_y;
-    config.profile = profile;
-
-    status = astcenc_config_init(profile, block_x, block_y, block_z, quality, 0, &config);
-    if (status != ASTCENC_SUCCESS) {
-        qWarning() << "ERROR: Codec config init failed: " << astcenc_get_error_string(status);
-        qFatal("Terminating");
-    }
-
-    astcenc_context *c;
-    status = astcenc_context_alloc(&config, thread_count, &c);
-    m_ctx.reset(c);
-    if (status != ASTCENC_SUCCESS) {
-        qWarning() << "ERROR: Codec context alloc failed: "<< astcenc_get_error_string(status);
-        qFatal("Terminating");
-    }
-}
+ASTCEncoder::ASTCEncoder(): d(new ASTCEncoderPrivate){}
 
 ASTCEncoder::~ASTCEncoder() {}
 
