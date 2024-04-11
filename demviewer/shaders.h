@@ -305,7 +305,7 @@ void main()
         vec2 integral;
         subTexCoord  = modf(scaled, integral);
         float layer = (sideLength - integral.y - 1) * sideLength + integral.x;
-        fragColor = texture(rasterArray, vec3(subTexCoord, layer));
+        fragColor = textureGrad(rasterArray, vec3(subTexCoord, layer), dFdx(scaled), dFdy(scaled));
 
         fragColor *= vec4(vec3(lightColor.rgb) * vec3(diff * brightness), 1); // ToDo: move lighting controls to GUI
     } else {   // Fragment is back facing fragment

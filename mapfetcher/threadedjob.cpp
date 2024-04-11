@@ -916,12 +916,6 @@ DEMTileReplyHandler::DEMTileReplyHandler(QNetworkReply *reply, MapFetcherWorker 
     m_computeHash = false;
 }
 
-#if 0
-quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
-{
-
-}
-#else
 quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 {
     if (!NetworkConfiguration::astcEnabled || !m_mips.size()) {
@@ -1041,7 +1035,7 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
             t->allocateStorage();
             // initialize everything with white
             for (int i = 0; i < layers; ++i) {
-                for (int mip = 0; mip < m_white8x8ASTC.size(); ++ mip) {
+                for (int mip = 0; mip < m_white8x8ASTC.size(); ++mip) {
                     t->setCompressedData(mip,
                                i,
                                m_white8x8ASTC.at(mip).dataLength(),
@@ -1065,7 +1059,7 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
         return sz; // astc
     }
 }
-#endif
+
 QSize ASTCCompressedTextureData::size() const
 {
     if (m_mips.size())
