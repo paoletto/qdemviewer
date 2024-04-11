@@ -56,7 +56,6 @@
 #include <cstdlib>
 #include <vector>
 #include <map>
-#include "astcenc.h"
 
 QAtomicInt NetworkConfiguration::offline{false};
 QAtomicInt NetworkConfiguration::astcEnabled{false};
