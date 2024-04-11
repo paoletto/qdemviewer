@@ -16,6 +16,7 @@ CONFIG += c++14
 CONFIG += static
 
 include($$PWD/../mapfetcher/mapfetcher.pri)
+include($$PWD/../astcencoder/astcencoder.pri)
 
 # You can make your code fail to compile if it uses deprecated APIs.
 # In order to do so, uncomment the following line.

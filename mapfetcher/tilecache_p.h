@@ -106,41 +106,4 @@ protected:
     bool m_initialized{false};
 };
 
-class ASTCCache {
-public:
-    ASTCCache(const QString &sqlitePath);
-    virtual ~ASTCCache() {}
-
-    bool insert(const QByteArray &tileHash,
-                int blockX,
-                int blockY,
-                float quality,
-                int width,
-                int height,
-                const QByteArray &tile);
-
-    QByteArray tile(const QByteArray &tileHash,
-                    int blockX,
-                    int blockY,
-                    float quality,
-                    int width,
-                    int height);
-
-    bool contains(const QByteArray &tileHash, int blockX, int blockY, float quality);
-
-    quint64 size() const;
-
-protected:
-    QString m_sqlitePath;
-    // DBs
-    QSqlDatabase m_diskCache;
-
-    // Queries
-    QSqlQuery m_queryCreation;
-    QSqlQuery m_queryFetchData;
-    QSqlQuery m_queryInsertData;
-    QSqlQuery m_queryHasData;
-    bool m_initialized{false};
-};
-
 #endif
