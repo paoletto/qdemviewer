@@ -968,10 +968,110 @@ quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
         return sz; // astc
     }
 }
+
+// TODO: move this code out of the library and into the application
+quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
+                                                   int layer,
+                                                   int layers)
+{
+    initStatics();
+    if (!NetworkConfiguration::astcEnabled) { // || !m_mips.size()) {
+        if (!m_image)
+            return 0;
+        QOpenGLPixelTransferOptions uploadOptions;
+        uploadOptions.setAlignment(1);
+        auto &t = texArray;
+        if (!t
+            || t->width() != m_image->size().width()
+            || t->height() != m_image->size().height()
+            || t->layers() != layers
+            || isFormatCompressed(t->format()))
+        {
+            t.reset(new QOpenGLTexture(QOpenGLTexture::Target2DArray));
+            t->setLayers(layers);
+            t->setMaximumAnisotropy(16);
+            t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                                       QOpenGLTexture::Linear);
+            t->setWrapMode(QOpenGLTexture::ClampToEdge);
+            t->setAutoMipMapGenerationEnabled(true);
+            t->setFormat(QOpenGLTexture::RGBA8_UNorm);
+            t->setSize(m_image->size().width(), m_image->size().height());
+            t->allocateStorage();
+
+            for (int i = 0; i < layers; ++i) {
+                t->setData(0,
+                           i,
+                           QOpenGLTexture::RGBA,
+                           QOpenGLTexture::UInt8,
+                           m_white256.constBits(),
+                           &uploadOptions);
+            }
+        }
+
+        QImage glImage = m_image->convertToFormat(QImage::Format_RGBA8888);
+        t->setData(0,
+                   layer,
+                   QOpenGLTexture::RGBA,
+                   QOpenGLTexture::UInt8,
+                   glImage.constBits(),
+                   &uploadOptions);
+        return glImage.sizeInBytes(); // TODO: this is incorrect, lacks mips size. do we care?
+    } else {
+        const int maxLod = m_mips.size() - 1;
+        auto &t = texArray;
+        QOpenGLPixelTransferOptions uploadOptions;
+        uploadOptions.setAlignment(1);
+        if (!t
+            || t->width() != m_mips.front().size().width()
+            || t->height() != m_mips.front().size().height()
+            || t->layers() != layers
+            || !isFormatCompressed(t->format())) {
+            t.reset(new QOpenGLTexture(QOpenGLTexture::Target2DArray));
+            t->setLayers(layers);
+            t->setAutoMipMapGenerationEnabled(false);
+            t->setMaximumAnisotropy(16);
+            t->setMipMaxLevel(maxLod);
+            t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                                       QOpenGLTexture::Linear);
+            t->setWrapMode(QOpenGLTexture::ClampToEdge);
+            t->setFormat(QOpenGLTexture::TextureFormat(m_mips.at(0).glInternalFormat()));
+            t->setSize(m_mips.at(0).size().width(), m_mips.at(0).size().height());
+            t->setMipLevels(m_mips.size());
+
+            t->allocateStorage();
+            // initialize everything with white
+            for (int i = 0; i < layers; ++i) {
+                for (int mip = 0; mip < m_white8x8ASTC.size(); ++ mip) {
+                    t->setCompressedData(mip,
+                               i,
+                               m_white8x8ASTC.at(mip).dataLength(),
+                               m_white8x8ASTC.at(mip).data().constData()
+                                         + m_white8x8ASTC.at(mip).dataOffset(),
+                               &uploadOptions);
+                }
+            }
+        }
+
+        quint64 sz{0};
+        for (int i  = 0; i <= maxLod; ++i) {
+            t->setCompressedData(i,
+                                 layer,
+                                 m_mips.at(i).dataLength(),
+                                 m_mips.at(i).data().constData() + m_mips.at(i).dataOffset(),
+                                 &uploadOptions);
+            sz += m_mips.at(i).dataLength();
+        }
+
+        return sz; // astc
+    }
+}
 #endif
 QSize ASTCCompressedTextureData::size() const
 {
-    // TODO: FIXME!!
+    if (m_mips.size())
+        return m_mips[0].size();
+    else if (m_image)
+        return m_image->size();
     return QSize();
 }
 

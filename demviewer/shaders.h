@@ -254,7 +254,6 @@ static constexpr char fragmentShaderTileTextured[] = R"(
 #version 450 core
 uniform highp vec4 color;
 uniform sampler2D raster;
-//uniform float[256] lightingCurve;
 uniform float brightness;
 uniform vec3 lightDirection;
 
@@ -269,10 +268,45 @@ vec4 lightColor = color;
 out vec4 fragColor;
 void main()
 {
-
     float diff = max(dot(normal, lightDir), 0.0);
     if (gl_FrontFacing) {
         fragColor = texture(raster, texCoord);
+        fragColor *= vec4(vec3(lightColor.rgb) * vec3(diff * brightness), 1); // ToDo: move lighting controls to GUI
+    } else {   // Fragment is back facing fragment
+        fragColor = vec4(0.5,0.1,0.1,1) + diff * 0.2;
+    }
+}
+)";
+
+static constexpr char fragmentShaderTileTextureArrayd[] = R"(
+#version 450 core
+uniform highp vec4 color;
+uniform sampler2DArray rasterArray;
+uniform int numSubtiles;
+uniform float brightness;
+uniform vec3 lightDirection;
+
+flat in int subQuadID;
+flat in vec3 normal;
+smooth in vec2 texCoord;
+
+//const vec3 lightDir = normalize(vec3(0.2,-0.2,-1));
+vec3 lightDir = lightDirection;
+vec4 lightColor = color;
+
+out vec4 fragColor;
+void main()
+{
+    float diff = max(dot(normal, lightDir), 0.0);
+    if (gl_FrontFacing) {
+        float sideLength = sqrt(numSubtiles);
+        vec2 scaled = texCoord * float(sideLength);
+        vec2 subTexCoord;
+        vec2 integral;
+        subTexCoord  = modf(scaled, integral);
+        float layer = (sideLength - integral.y - 1) * sideLength + integral.x;
+        fragColor = texture(rasterArray, vec3(subTexCoord, layer));
+
         fragColor *= vec4(vec3(lightColor.rgb) * vec3(diff * brightness), 1); // ToDo: move lighting controls to GUI
     } else {   // Fragment is back facing fragment
         fragColor = vec4(0.5,0.1,0.1,1) + diff * 0.2;

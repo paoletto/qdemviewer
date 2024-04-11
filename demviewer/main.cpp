@@ -83,24 +83,25 @@ template <typename T> int sgn(T val) {
 
 namespace  {
 QOpenGLVertexArrayObject datalessVao;
+TileKey superTile(const TileKey &k, quint8 z2) {
+    Q_ASSERT(z2 <= k.z);
+
+    int denominator = 1 << (k.z - z2);
+    quint64 x = k.x / denominator;
+    quint64 y = k.y / denominator;
+    return {x,y,z2};
 }
-
-float *lightingCurve() {
-    static bool initialized{false};
-    static float curve[256];
-    if (!initialized) {
-        QEasingCurve ec(QEasingCurve::InQuad);
-        initialized = true;
-        for (int i = 0; i < 256; ++i) {
-            float pct = float(i) / 255.;
-            curve[i] = 1.0 - ec.valueForProgress(pct);
-            curve[i] = 2. * pct - curve[i];
-        }
-    }
-
-    return curve;
+int keyToLayers(const TileKey &superk, const TileKey &subk) {
+    const int subdivisionLength = 1<<qMax(0, (int(subk.z) - int(superk.z)));
+    return subdivisionLength * subdivisionLength;
 }
-
+int keyToLayer(const TileKey &superk, const TileKey &subk) {
+    const int subdivisionLength = 1<<qMax(0, (int(subk.z) - int(superk.z)));
+    const quint64 xorig = superk.x * subdivisionLength;
+    const quint64 yorig = superk.y * subdivisionLength;
+    return (subk.y - yorig) * subdivisionLength + (subk.x - xorig);
+}
+}
 struct Origin {
     static void draw(const QMatrix4x4 &transformation,
                      const qreal scale) {
@@ -437,6 +438,17 @@ struct Tile
             m_rasterBytes = 0;
     }
 
+    void setRasterSubtile(const TileKey &k,
+                          std::shared_ptr<CompressedTextureData> tileRaster) {
+        if (!tileRaster) {
+            if (m_rasterSubtiles.find(k) == m_rasterSubtiles.end())
+                return;
+            else
+                m_rasterSubtiles.erase(k);
+        }
+        m_rasterSubtiles[k] = tileRaster;
+    }
+
     void setNeighbors(std::shared_ptr<Tile> demBottom = {},
                       std::shared_ptr<Tile> demRight = {},
                       std::shared_ptr<Tile> demBottomRight = {}) {
@@ -487,9 +499,19 @@ struct Tile
     QSharedPointer<QOpenGLTexture> mapTexture()
     {
         if (m_map) {
+
             m_rasterBytes = m_map->upload(m_texMap);
             m_compressedRaster = m_map->hasCompressedData();
             m_map = nullptr;
+        } else if (m_rasterSubtiles.size()) { // assume they are the correct subcontent for this tile.
+            m_compressedRaster = true;
+            std::map<TileKey, std::shared_ptr<CompressedTextureData>> subtiles;
+            subtiles.swap(m_rasterSubtiles);
+            for (auto &st: subtiles) {
+                const int layers = keyToLayers(m_key, st.first);
+                const int layer = keyToLayer(m_key, st.first);
+                m_rasterBytes += st.second->uploadTo2DArray(m_texMap,layer, layers);
+            }
         }
         return m_texMap;
     }
@@ -505,9 +527,11 @@ struct Tile
               int downsamplingRate)
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-        if (!m_shader) {
-            glEnable(GL_TEXTURE_2D);
-            glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTexSize);
+
+        if (!m_shader) {            
+            f->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTexSize);
+            f->glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &m_maxTexLayers);
+
             m_shader = new QOpenGLShaderProgram;
             m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
                                               QByteArray(vertexShaderTile));
@@ -533,6 +557,15 @@ struct Tile
             m_shaderJoinedDownsampledTextured->link();
             m_shaderJoinedDownsampledTextured->setObjectName("shaderJoinedDownsampledTextured");
 
+            m_shaderJoinedDownsampledTextureArrayd = new QOpenGLShaderProgram;
+            // Create shaders
+            m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                              QByteArray(vertexShaderTileJoinedDownsampled));
+            m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                              QByteArray(fragmentShaderTileTextureArrayd));
+            m_shaderJoinedDownsampledTextureArrayd->link();
+            m_shaderJoinedDownsampledTextureArrayd->setObjectName("shaderJoinedDownsampledTextureArrayd");
+
             m_texWhite.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
             m_texWhite->setMaximumAnisotropy(16);
             m_texWhite->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
@@ -553,21 +586,27 @@ struct Tile
             return; // skip drawing the tile
 
         auto rasterTxt = mapTexture();
+        // TODO: streamline, fix, deduplicate
         QOpenGLShaderProgram *shader = (rasterTxt) ? m_shaderTextured
                                                    : m_shader;
-        if (interactive && joinTiles)
-            shader = m_shaderJoinedDownsampledTextured;
+        if (interactive && joinTiles) {
+            if (rasterTxt && rasterTxt->layers() > 1)
+                shader = m_shaderJoinedDownsampledTextureArrayd;
+            else
+                shader = m_shaderJoinedDownsampledTextured;
+        }
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
         const auto tileMatrix = tileTransformation(origin);
         ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8); // TODO: test readonly
 
+        shader->bind();
+        f->glEnable(GL_TEXTURE_2D);
         if (rasterTxt)  {
             rasterTxt->bind();
         } else {
             m_texWhite->bind();
         }
-        shader->bind();
 
         int stride = (interactive) ? downsamplingRate : 1;
 
@@ -585,13 +624,18 @@ struct Tile
 //                                          : QColor(255,255,255,255));
         shader->setUniformValue("color", QColor(255,255,255,255));
 
-        shader->setUniformValue("raster", 0);
+//        if (!rasterTxt || rasterTxt->layers() == 1) {
+//            shader->setUniformValue("raster", 0);
+//        } else {
+//            shader->setUniformValue("rasterArray",0);
+//        }
+        shader->setUniformValue("samplingStride", stride);
         shader->setUniformValue("brightness", (rasterTxt) ? brightness : 1.0f );
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
         shader->setUniformValue("lightDirection", lightDirection);
         shader->setUniformValue("cOff", (joinTiles && !interactive) ? -0.5f: 0.5f);
         shader->setUniformValue("joined", int(joinTiles));
-        shader->setUniformValue("samplingStride", stride);
+        shader->setUniformValue("numSubtiles", int((!rasterTxt) ? 1 : rasterTxt->layers()));
 
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
         const int numVertices = totVertices(joinTiles, stride);
@@ -650,6 +694,7 @@ struct Tile
     QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
     std::shared_ptr<CompressedTextureData> m_map;
+    std::map<TileKey, std::shared_ptr<CompressedTextureData>> m_rasterSubtiles;
     QSharedPointer<QOpenGLTexture> m_texMap;
 
     std::shared_ptr<Tile> m_right;
@@ -657,16 +702,20 @@ struct Tile
     std::shared_ptr<Tile> m_bottomRight;
 
     static GLint m_maxTexSize;
+    static GLint m_maxTexLayers;
     static QOpenGLShaderProgram *m_shader;
     static QOpenGLShaderProgram *m_shaderTextured;
     static QOpenGLShaderProgram *m_shaderJoinedDownsampledTextured;
+    static QOpenGLShaderProgram *m_shaderJoinedDownsampledTextureArrayd;
     static QScopedPointer<QOpenGLTexture> m_texWhite;
 };
 QOpenGLShaderProgram *Tile::m_shader{nullptr};
 QOpenGLShaderProgram *Tile::m_shaderTextured{nullptr};
 QOpenGLShaderProgram *Tile::m_shaderJoinedDownsampledTextured{nullptr};
+QOpenGLShaderProgram *Tile::m_shaderJoinedDownsampledTextureArrayd{nullptr};
 QScopedPointer<QOpenGLTexture> Tile::m_texWhite;
 GLint Tile::m_maxTexSize{0};
+GLint Tile::m_maxTexLayers{0};
 
 QDebug operator<<(QDebug d, const  Tile &t) {
         QDebug nsp = d.nospace();
@@ -701,13 +750,32 @@ public:
     }
 
     void updateTileRaster(const TileKey k,
-                          std::shared_ptr<CompressedTextureData> raster) {
+                          std::shared_ptr<CompressedTextureData> raster)
+    {
+#if 1
+        auto t = m_tiles.find(k);
+        if (t != m_tiles.end()) {
+            t->second->setMap(std::move(raster));
+            return;
+        }
+        if (k.z == 0) // no parent tiles possible
+            return;
 
+        // As this is a demo, it makes a strong assumption: if a raster tile of zoom level
+        // z2 > k.z arrives, it is expected that all other subtiles for k will come.
+
+        auto superZ = hasSuperTile(k);
+        if (superZ < 0)
+            return;
+
+        m_tiles.find(superTile(k, superZ))->second->setRasterSubtile(k, std::move(raster));
+#else
         auto t = m_tiles.find(k);
         if (t == m_tiles.end())
             return;
 
         t->second->setMap(std::move(raster));
+#endif
     }
 
     void updateNeighbors() {
@@ -721,11 +789,25 @@ public:
         }
     }
 
-    bool hasTile(const TileKey k) const {
+    bool hasTile(const TileKey &k) const {
         return m_tiles.find(k) != m_tiles.end();
     }
 
-    std::shared_ptr<Tile> tile(const TileKey k) const {
+    int hasSuperTile(const TileKey &k) const {
+        const int endRange = qMax(0, k.z - 5); // Using up to 5 zoom levels up. 5 is arbitrary.
+                                               // 2^5 = 32 (x32 = 1024). Intel graphics supports 2048 layers.
+                                               // TODO: make it depend on actual raster size vs 3D texture max layers
+        for (quint8 z = k.z - 1; z >= endRange; z--) {
+            auto t = m_tiles.find(superTile(k, z));
+            if (t == m_tiles.end())
+                continue;
+            return z;
+        }
+
+        return -1;
+    }
+
+    std::shared_ptr<Tile> tile(const TileKey &k) const {
         auto it = m_tiles.find(k);
         if (it != m_tiles.end())
             return it->second;
@@ -1218,7 +1300,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
             keys.push_back(it.first);
 
         for (const auto &k: keys) {
-            if (hasTile(k)) {
+            if (hasTile(k) || hasSuperTile(k) >= 0) {
                 std::shared_ptr<CompressedTextureData> raster = std::move(viewer->m_newMapRasters[k]);
                 viewer->m_newMapRasters.erase(k);
                 updateTileRaster(k, std::move(raster));
@@ -1231,7 +1313,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
 }
 
 int main(int argc, char *argv[])
-{
+{    
 #if defined(Q_OS_LINUX)
     qputenv("QT_QPA_PLATFORMTHEME", QByteArrayLiteral("gtk3"));
 #endif
@@ -1252,6 +1334,7 @@ int main(int argc, char *argv[])
     fmt.setVersion(4, 5);
     fmt.setRenderableType(QSurfaceFormat::OpenGL);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
+    fmt.setSamples(4);
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QGuiApplication app(argc, argv);

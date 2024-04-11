@@ -13,9 +13,20 @@ QT += positioning-private #for QDouble math
 QT += location-private #for QGeoCameraTiles/Private
 QT += gui-private # TODO: make this one conditional together with ASTC support (and related inclusions below)
 
-
 CONFIG += c++14
 QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+
+mapfetcher_res.files = $$PWD/white256.png \
+                       $$PWD/white256_8x8.astc \
+                       $$PWD/white128_8x8.astc \
+                       $$PWD/white64_8x8.astc \
+                       $$PWD/white32_8x8.astc \
+                       $$PWD/white16_8x8.astc \
+                       $$PWD/white8_8x8.astc
+mapfetcher_res.base = $$PWD/
+mapfetcher_res.prefix = /
+
+RESOURCES += mapfetcher_res
 
 INCLUDEPATH += $$PWD/astc-encoder
 

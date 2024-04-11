@@ -210,6 +210,9 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
     ~ASTCCompressedTextureData() override = default;
 
     quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
+    quint64 uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
+                                      int layer,
+                                      int layers) override;
     QSize size() const override;
     bool hasCompressedData() const override;
 
@@ -217,6 +220,11 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
 
     std::shared_ptr<QImage> m_image;
     std::vector<QTextureFileData> m_mips;
+
+    void initStatics();
+
+    static QImage m_white256;
+    static std::vector<QTextureFileData> m_white8x8ASTC;
 };
 
 class ASTCFetcherPrivate :  public MapFetcherPrivate

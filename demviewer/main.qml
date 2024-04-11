@@ -84,7 +84,7 @@ QC2.ApplicationWindow {
         property alias rasterEnabled: rasterEnabled.checked
         property alias fastInteraction: fastInteractionMenuItem.checked
         property alias autoRefinement: autoRefinementMenuItem.checked
-        property alias forwardUncompressed: forwardUncompressed.checked
+//        property alias forwardUncompressed: forwardUncompressed.checked
         property alias offline: offline.checked
         property alias invertTessDirection: invertTessDirection.checked
         property alias lightPos: shadingSphere.pos
@@ -95,8 +95,8 @@ QC2.ApplicationWindow {
         property var modelTransformation
 
         Component.onCompleted: {
-            mapFetcher.forwardUncompressedTiles =
-                    Qt.binding(function() { return settings.forwardUncompressed })
+            mapFetcher.forwardUncompressedTiles = false
+//                    Qt.binding(function() { return settings.forwardUncompressed })
         }
     }
 
@@ -207,6 +207,7 @@ QC2.ApplicationWindow {
                 id: joinTilesMenuItem
                 text: qsTr("Join Tiles")
                 checkable: true
+                checked: true
                 QC2.ToolTip.visible: hovered
                 QC2.ToolTip.text: "Render connecting geometry between tiles"
                 QC2.ToolTip.delay: 300
@@ -216,6 +217,8 @@ QC2.ApplicationWindow {
                 text: qsTr("Fast Interaction")
                 checkable: true
                 checked: true
+                visible: false
+                height: 0
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
                 QC2.ToolTip.text: "Render a decimated mesh during interaction"
@@ -225,7 +228,9 @@ QC2.ApplicationWindow {
                 id: autoRefinementMenuItem
                 text: qsTr("Auto Refinement")
                 checkable: true
-                checked: true
+                checked: false
+                visible: false
+                height: 0
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
                 QC2.ToolTip.text: "Render the mesh fully when interaction stops"
@@ -251,18 +256,18 @@ QC2.ApplicationWindow {
                 QC2.ToolTip.text: "Texture compression reduces memory usage"
                 QC2.ToolTip.delay: 300
             }
-            QC2.MenuItem {
-                id: forwardUncompressed
-                text: qsTr("Use uncompressed tiles")
-                checkable: true
-                checked: false
-                enabled: astc.checked
+//            QC2.MenuItem {
+//                id: forwardUncompressed
+//                text: qsTr("Use uncompressed tiles")
+//                checkable: true
+//                checked: false
+//                enabled: astc.checked
 
-                hoverEnabled: true
-                QC2.ToolTip.visible: hovered
-                QC2.ToolTip.text: "Use uncompressed textures as soon as they are available"
-                QC2.ToolTip.delay: 300
-            }
+//                hoverEnabled: true
+//                QC2.ToolTip.visible: hovered
+//                QC2.ToolTip.text: "Use uncompressed textures as soon as they are available"
+//                QC2.ToolTip.delay: 300
+//            }
             RowLayout {
                 spacing: 4
                 width: parent.width
@@ -491,6 +496,7 @@ QC2.ApplicationWindow {
                         anchors.fill: parent
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onPressed: {
+                            tips.hide()
                             if (mouse.button == Qt.LeftButton && mouse.modifiers & Qt.ShiftModifier) {
                                 mouse.accepted = true
                                 parent.gesture.enabled = false
@@ -532,7 +538,8 @@ QC2.ApplicationWindow {
                                     res = mapFetcher.requestSlippyTiles(
                                                                   parent.selectionPolygon,
                                                                   zlMapSlider.value,
-                                                                  zlslider.value)
+                                                                  zlMapSlider.value)
+//                                                                  zlslider.value)
                                     console.log("Request ",res,"issued")
                                     if (logRequests.checked)
                                         utilities.logRequest(mapFetcher,
