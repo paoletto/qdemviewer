@@ -673,14 +673,12 @@ void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
 
 QImage ASTCCompressedTextureData::m_white256;
 std::vector<QTextureFileData> ASTCCompressedTextureData::m_white8x8ASTC;
+std::vector<QTextureFileData> ASTCCompressedTextureData::m_transparent8x8ASTC;
 
-void ASTCCompressedTextureData::initStatics() {
-    if (!m_white256.isNull())
-        return;
-    Q_INIT_RESOURCE(qmake_mapfetcher_res);
-    m_white256.load(":/white256.png");
+namespace  {
+void loadASTCMips(const QString &baseName, std::vector<QTextureFileData> &container) {
     for (int i : {256,128,64,32,16,8}) {
-        QString fname = ":/white" + QString::number(i) + "_8x8.astc";
+        QString fname = ":/" + baseName + QString::number(i) + "_8x8.astc";
         QFile f(fname);
         bool res = f.open(QIODevice::ReadOnly);
         if (!res) {
@@ -690,7 +688,17 @@ void ASTCCompressedTextureData::initStatics() {
         if (!fr.canRead())
             qWarning()<<"TFR cannot read texture!";
 
-        m_white8x8ASTC.push_back(fr.read());
+        container.push_back(fr.read());
         f.close();
     }
+}
+}
+
+void ASTCCompressedTextureData::initStatics() {
+    if (!m_white256.isNull())
+        return;
+    Q_INIT_RESOURCE(qmake_mapfetcher_res);
+    m_white256.load(":/white256.png");
+    loadASTCMips("white", m_white8x8ASTC);
+    loadASTCMips("transparent", m_transparent8x8ASTC);
 }

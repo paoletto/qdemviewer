@@ -829,7 +829,7 @@ protected:
     QOpenGLFramebufferObject *createFbo(const QSize &size) {
         QOpenGLFramebufferObjectFormat format;
         format.setAttachment(QOpenGLFramebufferObject::Depth);
-        format.setSamples(4);
+//        format.setSamples(4);
         m_fbo =  new QOpenGLFramebufferObject(size, format);
         return m_fbo;
     }
@@ -1334,7 +1334,6 @@ int main(int argc, char *argv[])
     fmt.setVersion(4, 5);
     fmt.setRenderableType(QSurfaceFormat::OpenGL);
     fmt.setProfile(QSurfaceFormat::CoreProfile);
-    fmt.setSamples(4);
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QGuiApplication app(argc, argv);

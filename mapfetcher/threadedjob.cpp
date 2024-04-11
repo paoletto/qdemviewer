@@ -1035,12 +1035,12 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
             t->allocateStorage();
             // initialize everything with white
             for (int i = 0; i < layers; ++i) {
-                for (int mip = 0; mip < m_white8x8ASTC.size(); ++mip) {
+                for (int mip = 0; mip < m_transparent8x8ASTC.size(); ++mip) {
                     t->setCompressedData(mip,
                                i,
-                               m_white8x8ASTC.at(mip).dataLength(),
-                               m_white8x8ASTC.at(mip).data().constData()
-                                         + m_white8x8ASTC.at(mip).dataOffset(),
+                               m_transparent8x8ASTC.at(mip).dataLength(),
+                               m_transparent8x8ASTC.at(mip).data().constData()
+                                         + m_transparent8x8ASTC.at(mip).dataOffset(),
                                &uploadOptions);
                 }
             }
