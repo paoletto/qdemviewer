@@ -226,7 +226,7 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
 
     void initStatics();
 
-    static QImage m_white256;
+    static std::vector<QImage> m_white256;
     static std::vector<QTextureFileData> m_white8x8ASTC;
     static std::vector<QTextureFileData> m_transparent8x8ASTC;
 };

@@ -260,6 +260,22 @@ QTextureFileData ASTCEncoder::fromCached(QByteArray &cached) {
     return res;
 }
 
+void ASTCEncoder::generateMips(QImage ima, std::vector<QImage> &out)
+{
+    QSize size = ima.size();
+    QImage halved;
+    out.emplace_back(ima);
+
+    halved = std::move(ima);
+    while (isEven(size)) {
+        size = QSize(size.width() / 2, size.height() / 2);
+        if (size.width() < ASTCEncoder::blockSize())
+            break;
+        halved = ASTCEncoder::halve(halved);
+        out.emplace_back(halved);
+    }
+}
+
 void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> &out, QByteArray md5) {
     if (!md5.size()) {
         QCryptographicHash ch(QCryptographicHash::Md5);

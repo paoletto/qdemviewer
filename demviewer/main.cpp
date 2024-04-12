@@ -429,6 +429,9 @@ struct Tile
     }
 
     void setDem(std::shared_ptr<Heightmap> dem) {
+        // TODO: do this in a better way
+        if (m_texDem && m_hasBorders)
+            return;
         m_dem = std::move(*dem);
         m_resolution = m_dem.size();
     }
@@ -620,9 +623,6 @@ struct Tile
         shader->setUniformValue("elevationScale", elevationScale);
         const QMatrix4x4 m = transformation * tileMatrix;
         shader->setUniformValue("matrix", m);
-//        shader->setUniformValue("color", (m_compressedRaster)
-//                                          ? QColor(255,0,255,255)
-//                                          : QColor(255,255,255,255));
         shader->setUniformValue("color", QColor(255,255,255,255));
 
 //        if (!rasterTxt || rasterTxt->layers() == 1) {

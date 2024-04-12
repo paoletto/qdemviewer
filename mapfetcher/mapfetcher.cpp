@@ -686,7 +686,7 @@ void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
     emit coverageReady(id);
 }
 
-QImage ASTCCompressedTextureData::m_white256;
+std::vector<QImage> ASTCCompressedTextureData::m_white256;
 std::vector<QTextureFileData> ASTCCompressedTextureData::m_white8x8ASTC;
 std::vector<QTextureFileData> ASTCCompressedTextureData::m_transparent8x8ASTC;
 
@@ -710,10 +710,10 @@ void loadASTCMips(const QString &baseName, std::vector<QTextureFileData> &contai
 }
 
 void ASTCCompressedTextureData::initStatics() {
-    if (!m_white256.isNull())
+    if (m_white256.size())
         return;
     Q_INIT_RESOURCE(qmake_mapfetcher_res);
-    m_white256.load(":/white256.png");
+    m_white256[0].load(":/white256.png");
     loadASTCMips("white", m_white8x8ASTC);
     loadASTCMips("transparent", m_transparent8x8ASTC);
 }

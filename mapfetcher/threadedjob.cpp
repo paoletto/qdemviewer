@@ -688,24 +688,39 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
             t->setSize(m_image->size().width(), m_image->size().height());
             t->allocateStorage();
 
+            if (m_white256.size() == 1) {
+                QImage i256 = std::move(m_white256[0]);
+                m_white256.clear();
+                ASTCEncoder::generateMips(i256, m_white256);
+            }
+
             for (int i = 0; i < layers; ++i) {
-                t->setData(0,
-                           i,
-                           QOpenGLTexture::RGBA,
-                           QOpenGLTexture::UInt8,
-                           m_white256.constBits(),
-                           &uploadOptions);
+                for (int m = 0; m < m_white256.size(); ++m) {
+                    t->setData(m,
+                               i,
+                               QOpenGLTexture::RGBA,
+                               QOpenGLTexture::UInt8,
+                               m_white256[m].constBits(),
+                               &uploadOptions);
+                }
             }
         }
 
         QImage glImage = m_image->convertToFormat(QImage::Format_RGBA8888);
-        t->setData(0,
-                   layer,
-                   QOpenGLTexture::RGBA,
-                   QOpenGLTexture::UInt8,
-                   glImage.constBits(),
-                   &uploadOptions);
-        return glImage.sizeInBytes(); // TODO: this is incorrect, lacks mips size. do we care?
+        std::vector<QImage> mips;
+        ASTCEncoder::generateMips(glImage, mips);
+        quint64 sz{0};
+        for (size_t m = 0; m < mips.size(); ++m) {
+            t->setData(m,
+                       layer,
+                       QOpenGLTexture::RGBA,
+                       QOpenGLTexture::UInt8,
+                       mips[m].constBits(),
+                       &uploadOptions);
+            sz += mips[m].sizeInBytes();
+        }
+
+        return sz;
     } else {
         const int maxLod = m_mips.size() - 1;
         auto &t = texArray;
