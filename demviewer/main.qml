@@ -538,13 +538,14 @@ QC2.ApplicationWindow {
                                     res = mapFetcher.requestSlippyTiles(
                                                                   parent.selectionPolygon,
                                                                   zlMapSlider.value,
-                                                                  zlMapSlider.value)
-//                                                                  zlslider.value)
+                                                                  zlslider.value,
+                                                                  false)
                                     console.log("Request ",res,"issued")
                                     if (logRequests.checked)
                                         utilities.logRequest(mapFetcher,
                                                              parent.selectionPolygon,
-                                                             zlMapSlider.value, zlslider.value)
+                                                             zlMapSlider.value,
+                                                             zlslider.value)
                                 }
                             } else {
                                 res = demfetcher.requestCoverage(parent.selectionPolygon,

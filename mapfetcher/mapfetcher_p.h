@@ -167,8 +167,9 @@ public:
 
     std::shared_ptr<QImage> tile(quint64 id, const TileKey k);
     virtual quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
-                                    const quint8 zoom,
-                                    quint8 destinationZoom);
+                                       const quint8 zoom,
+                                       quint8 destinationZoom,
+                                       bool compound);
 
     virtual quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                                     const quint8 zoom,
@@ -194,8 +195,9 @@ public:
     ~DEMFetcherPrivate() override;
 
     quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
-                            const quint8 zoom,
-                            quint8) override;
+                               const quint8 zoom,
+                               quint8,
+                               bool) override;
 
     quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
@@ -239,8 +241,9 @@ public:
 
     std::shared_ptr<CompressedTextureData> tileASTC(quint64 id, const TileKey k);
     quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
-                            const quint8 zoom,
-                            quint8 destinationZoom) override;
+                               const quint8 zoom,
+                               quint8 destinationZoom,
+                               bool compound) override;
 
     quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
@@ -267,7 +270,8 @@ public:
     void requestSlippyTiles(quint64 requestId,
                             const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
-                            quint8 destinationZoom);
+                            quint8 destinationZoom,
+                            bool compound = true);
 
     void requestCoverage(quint64 requestId,
                             const QList<QGeoCoordinate> &crds,
@@ -448,10 +452,11 @@ public:
 
 public slots:
     void requestSlippyTiles(MapFetcher *mapFetcher,
-                               quint64 requestId,
-                               const QList<QGeoCoordinate> &crds,
-                               const quint8 zoom,
-                               quint8 destinationZoom);
+                            quint64 requestId,
+                            const QList<QGeoCoordinate> &crds,
+                            const quint8 zoom,
+                            quint8 destinationZoom,
+                            bool compound);
 
     void requestCoverage(MapFetcher *mapFetcher,
                             quint64 requestId,
@@ -461,10 +466,10 @@ public slots:
 
 
     void requestSlippyTiles(DEMFetcher *demFetcher,
-                               quint64 requestId,
-                               const QList<QGeoCoordinate> &crds,
-                               const quint8 zoom,
-                               quint8 destinationZoom);
+                            quint64 requestId,
+                            const QList<QGeoCoordinate> &crds,
+                            const quint8 zoom,
+                            quint8 destinationZoom);
 
     void requestCoverage(DEMFetcher *demFetcher,
                             quint64 requestId,
@@ -476,7 +481,8 @@ public slots:
                             quint64 requestId,
                             const QList<QGeoCoordinate> &crds,
                             const quint8 zoom,
-                            quint8 destinationZoom);
+                            quint8 destinationZoom,
+                            bool compound);
 
     void requestCoverage(ASTCFetcher *fetcher,
                             quint64 requestId,
@@ -535,14 +541,16 @@ public:
     quint64 requestSlippyTiles(MapFetcher &mapFetcher,
                                const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
-                               const quint8 destinationZoom) {
+                               const quint8 destinationZoom,
+                               bool compound) {
         const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(MapFetcher *, &mapFetcher)
                                   , Q_ARG(qulonglong, requestId)
                                   , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
-                                  , Q_ARG(uchar, destinationZoom));
+                                  , Q_ARG(uchar, destinationZoom)
+                                  , Q_ARG(bool, compound));
         return requestId;
     }
 
@@ -591,14 +599,16 @@ public:
     quint64 requestSlippyTiles(ASTCFetcher &fetcher,
                                const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
-                               const quint8 destinationZoom) {
+                               const quint8 destinationZoom,
+                               bool compound) {
         const auto requestId = m_requestID++;
         QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
                                   , Q_ARG(ASTCFetcher *, &fetcher)
                                   , Q_ARG(qulonglong, requestId)
                                   , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
-                                  , Q_ARG(uchar, destinationZoom));
+                                  , Q_ARG(uchar, destinationZoom)
+                                  , Q_ARG(bool, compound));
         return requestId;
     }
 

@@ -123,10 +123,11 @@ bool TileData::operator<(const TileData &o) const {
 }
 
 quint64 MapFetcher::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
-                                     const quint8 zoom,
-                                     quint8 destinationZoom) {
+                                       const quint8 zoom,
+                                       quint8 destinationZoom,
+                                       bool compound) {
     Q_D(MapFetcher);
-    return d->requestSlippyTiles(crds, zoom, destinationZoom);
+    return d->requestSlippyTiles(crds, zoom, destinationZoom, compound);
 }
 
 std::shared_ptr<QImage> MapFetcher::tile(quint64 id, const TileKey k)
@@ -484,11 +485,12 @@ std::shared_ptr<QImage> MapFetcherPrivate::tile(quint64 id, const TileKey k)
 
 quint64 MapFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                               const quint8 zoom,
-                                              quint8 destinationZoom)
+                                              quint8 destinationZoom,
+                                              bool compound)
 {
     Q_Q(MapFetcher);
     int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
-    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom);
+    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom, compound);
 }
 
 quint64 MapFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &crds, const quint8 zoom, bool clip)
@@ -566,7 +568,8 @@ DEMFetcherPrivate::~DEMFetcherPrivate() {}
 
 quint64 DEMFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                               const quint8 zoom,
-                                              quint8 destinationZoom)
+                                              quint8 destinationZoom,
+                                              bool)
 {
     Q_Q(DEMFetcher);
     int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
@@ -592,11 +595,12 @@ std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, 
 
 quint64 ASTCFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                                const quint8 zoom,
-                                               quint8 destinationZoom)
+                                               quint8 destinationZoom,
+                                               bool compound)
 {
     Q_Q(ASTCFetcher);
     int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
-    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom);
+    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom, compound);
 }
 
 quint64 ASTCFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &crds, const quint8 zoom, bool clip)

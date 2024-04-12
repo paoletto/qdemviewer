@@ -463,7 +463,8 @@ void NetworkIOManager::requestSlippyTiles(MapFetcher *f,
                                           quint64 requestId,
                                           const QList<QGeoCoordinate> &crds,
                                           const quint8 zoom,
-                                          quint8 destinationZoom)
+                                          quint8 destinationZoom,
+                                          bool compound)
 {
     if (crds.isEmpty()) {
         qWarning() << "requestSlippyTiles: Invalid bounds";
@@ -472,7 +473,7 @@ void NetworkIOManager::requestSlippyTiles(MapFetcher *f,
 
     MapFetcherWorker *w = getMapFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
-    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom);
+    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom, compound);
 }
 
 void NetworkIOManager::requestSlippyTiles(DEMFetcher *f,
@@ -487,7 +488,7 @@ void NetworkIOManager::requestSlippyTiles(DEMFetcher *f,
     }
     DEMFetcherWorker *w = getDEMFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
-    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom);
+    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom, false);
 }
 
 void NetworkIOManager::requestCoverage(MapFetcher *f,
@@ -496,7 +497,7 @@ void NetworkIOManager::requestCoverage(MapFetcher *f,
                                        const quint8 zoom,
                                        const bool clip) {
     if (crds.isEmpty()) {
-        qWarning() << "requestSlippyTiles: Invalid bounds";
+        qWarning() << "requestCoverage: Invalid bounds";
         return;
     }
     MapFetcherWorker *w = getMapFetcherWorker(f);
@@ -510,7 +511,7 @@ void NetworkIOManager::requestCoverage(DEMFetcher *f,
                                        const quint8 zoom,
                                        const bool clip) {
     if (crds.isEmpty()) {
-        qWarning() << "requestSlippyTiles: Invalid bounds";
+        qWarning() << "requestCoverage: Invalid bounds";
         return;
     }
     DEMFetcherWorker *w = getDEMFetcherWorker(f);
@@ -522,7 +523,8 @@ void NetworkIOManager::requestSlippyTiles(ASTCFetcher *f,
                                           quint64 requestId,
                                           const QList<QGeoCoordinate> &crds,
                                           const quint8 zoom,
-                                          quint8 destinationZoom)
+                                          quint8 destinationZoom,
+                                          bool compound)
 {
     if (crds.isEmpty()) {
         qWarning() << "requestSlippyTiles: Invalid bounds";
@@ -530,7 +532,7 @@ void NetworkIOManager::requestSlippyTiles(ASTCFetcher *f,
     }
     ASTCFetcherWorker *w = getASTCFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
-    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom);
+    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom, compound);
 }
 
 void NetworkIOManager::requestCoverage(ASTCFetcher *f,
@@ -754,7 +756,8 @@ MapFetcherWorker::MapFetcherWorker(QObject *parent,
 void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
                                           const QList<QGeoCoordinate> &crds,
                                           const quint8 zoom,
-                                          quint8 destinationZoom) {
+                                          quint8 destinationZoom,
+                                          bool compound) {
     Q_D(MapFetcherWorker);
     if (crds.isEmpty()) {
         qWarning() << "requestSlippyTiles: Invalid bounds";
@@ -847,7 +850,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
 
     requestMapTiles(tiles,
                     urlTemplate,
-                    originalDestinationZoom,
+                    (compound) ? originalDestinationZoom : zoom,
                     requestId,
                     false,
                     d->m_nm,

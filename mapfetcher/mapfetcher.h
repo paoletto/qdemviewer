@@ -179,8 +179,9 @@ public:
     // This API allows to fetch a different (larger) ZL and assemble it
     // into an image that matches the destinationZoom
     Q_INVOKABLE quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
-                                        const quint8 zoom,
-                                        quint8 destinationZoom);
+                                           const quint8 zoom,
+                                           quint8 destinationZoom,
+                                           bool compound = true);
 
     Q_INVOKABLE quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
                                         const quint8 zoom,

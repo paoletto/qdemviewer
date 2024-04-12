@@ -221,7 +221,8 @@ public:
             qobject_cast<MapFetcher *>(mFetchers[fetcher])->requestSlippyTiles(
                             coordinates,
                             zoom,
-                            destZoom);
+                            destZoom,
+                            false);
         }
     }
 
