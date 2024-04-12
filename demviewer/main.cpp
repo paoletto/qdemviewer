@@ -852,7 +852,7 @@ protected:
     void render() override
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-        auto *f4 = QOpenGLContext::currentContext()->versionFunctions<QOpenGLFunctions_4_0_Core>();
+//        auto *f4 = QOpenGLContext::currentContext()->versionFunctions<QOpenGLFunctions_4_0_Core>();
 
         f->glClearColor(0, 0, 0, 0);
         f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -861,9 +861,9 @@ protected:
         f->glDepthMask(true);
 
 
-        GLint polygonMode;
-        f->glGetIntegerv(GL_POLYGON_MODE, &polygonMode);
-        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
+//        GLint polygonMode;
+//        f->glGetIntegerv(GL_POLYGON_MODE, &polygonMode);
+//        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
 //        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
 //        f45->glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
@@ -883,7 +883,7 @@ protected:
                    m_downsamplingRate);
         }
 
-        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
+//        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
         if (m_window)
             m_window->resetOpenGLState();
     }
