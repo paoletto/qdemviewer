@@ -16,17 +16,17 @@ QMAKE_CXXFLAGS += "-fno-sized-deallocation"
 
 INCLUDEPATH += $$PWD/astc-encoder
 
-#DEFINES += "ASTCENC_ISA_AVX2=ON"
-
-#DEFINES += "ASTCENC_NEON=0"
-DEFINES += "ASTCENC_SSE=42"
-DEFINES += "ASTCENC_AVX=2"
-DEFINES += "ASTCENC_POPCNT=1"
-#DEFINES += "ASTCENC_F16C=1"
-
-QMAKE_FLAGS_RELEASE += -O3 -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
-
-QMAKE_CXXFLAGS_RELEASE += -O3 -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
+CONFIG(debug, debug|release) {
+} else {
+    #DEFINES += "ASTCENC_ISA_AVX2=ON"
+    #DEFINES += "ASTCENC_NEON=0"
+    #DEFINES += "ASTCENC_F16C=1"
+    DEFINES += "ASTCENC_SSE=42"
+    DEFINES += "ASTCENC_AVX=2"
+    DEFINES += "ASTCENC_POPCNT=1"
+    QMAKE_FLAGS_RELEASE += -O3 -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
+    QMAKE_CXXFLAGS_RELEASE += -O3 -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
+}
 
 #Input
 HEADERS +=  $$files(*.h)

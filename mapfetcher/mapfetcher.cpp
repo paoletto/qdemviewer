@@ -87,6 +87,7 @@ struct TileKeyRegistrar
     {
         qRegisterMetaType<TileKey>("TileKey");
         qRegisterMetaType<std::shared_ptr<QImage>>("QImageShared");
+        qRegisterMetaType<std::shared_ptr<QByteArray>>("QByteArrayShared");
         qRegisterMetaType<std::shared_ptr<Heightmap>>("HeightmapShared");
         qRegisterMetaType<std::shared_ptr<CompressedTextureData>>("CompressedTextureDataShared");
     }
@@ -701,3 +702,4 @@ void ASTCCompressedTextureData::initStatics() {
     loadASTCMips("white", m_white8x8ASTC);
     loadASTCMips("transparent", m_transparent8x8ASTC);
 }
+

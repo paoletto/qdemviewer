@@ -303,6 +303,7 @@ friend class NetworkIOManager;
 
 Q_DECLARE_METATYPE(TileKey)
 Q_DECLARE_METATYPE(std::shared_ptr<QImage>)
+Q_DECLARE_METATYPE(std::shared_ptr<QByteArray>)
 Q_DECLARE_METATYPE(std::shared_ptr<CompressedTextureData>)
 Q_DECLARE_METATYPE(std::shared_ptr<Heightmap>)
 

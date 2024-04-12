@@ -762,7 +762,6 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     }
     const quint8 originalDestinationZoom = destinationZoom;
     destinationZoom = std::min(zoom, destinationZoom); // clamp dz to zoom. can only be smaller
-    // TODO: implement the other way
 
     auto tiles = tilesFromBounds(crds, destinationZoom); // Calculating using dz to avoid partial coverage
     for (const auto &t: tiles) {
@@ -936,7 +935,8 @@ void MapFetcherWorker::onTileReplyFinished() {
     }
 
     auto *handler = (df) ? new DEMTileReplyData(reply, *this)
-                         : new TileReplyData(reply, *this);
+                         : (af) ? new ASTCTileReplyData(reply, *this)
+                                : new TileReplyData(reply, *this);
     d->m_worker->schedule(handler);
 }
 
@@ -978,6 +978,16 @@ void MapFetcherWorker::onInsertTile(const quint64 id,
                               k.z,
                               md5,
                               *i);
+    }
+}
+
+void MapFetcherWorker::onInsertCompressedTileData(const quint64 id,
+                                                  const TileKey k,
+                                                  std::shared_ptr<QByteArray> data) {
+    Q_D(MapFetcherWorker);
+    emit compressedTileDataReady(id, k, std::move(data));
+    if (!--d->m_request2remainingHandlers[id] && !qobject_cast<DEMFetcherWorker *>(this)) {
+        emit requestHandlingFinished(id);
     }
 }
 
@@ -1125,6 +1135,7 @@ void ASTCFetcherWorker::init()
     connect(qobject_cast<ASTCFetcher *>(d->m_fetcher), &ASTCFetcher::forwardUncompressedTilesChanged,
             this, &ASTCFetcherWorker::setForwardUncompressed, Qt::QueuedConnection);
     connect(this, &MapFetcherWorker::tileReady, this, &ASTCFetcherWorker::onTileReady);
+    connect(this, &MapFetcherWorker::compressedTileDataReady, this, &ASTCFetcherWorker::onCompressedTileDataReady);
     connect(this, &MapFetcherWorker::coverageReady, this, &ASTCFetcherWorker::onCoverageReady);
 }
 
@@ -1134,7 +1145,7 @@ void ASTCFetcherWorker::onTileReady(quint64 id,
                                     QByteArray md5)
 {
     Q_D(ASTCFetcherWorker);
-    auto h = new Raster2ASTCData(i,
+    auto h = new Raster2ASTCData(std::move(i),
                                  k,
                                  *this,
                                  id,
@@ -1143,11 +1154,24 @@ void ASTCFetcherWorker::onTileReady(quint64 id,
     d->m_workerASTC->schedule(h);
 }
 
+void ASTCFetcherWorker::onCompressedTileDataReady(quint64 id,
+                                                  const TileKey k,
+                                                  std::shared_ptr<QByteArray> data)
+{
+    Q_D(ASTCFetcherWorker);
+    auto h = new Raster2ASTCData(std::move(data),
+                                 k,
+                                 *this,
+                                 id,
+                                 false);
+    d->m_workerASTC->schedule(h);
+}
+
 void ASTCFetcherWorker::onCoverageReady(quint64 id,
                                         std::shared_ptr<QImage> i)
 {
     Q_D(ASTCFetcherWorker);
-    auto h = new Raster2ASTCData(i,
+    auto h = new Raster2ASTCData(std::move(i),
                                  {0,0,0},
                                  *this,
                                  id,

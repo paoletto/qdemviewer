@@ -163,7 +163,9 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
                                                   comp_len,
                                                   0);
     if (status != ASTCENC_SUCCESS || !data.size()) {
-        qWarning() << "ERROR: Codec compress failed: "<< astcenc_get_error_string(status);
+        qWarning() << "ERROR: Codec compress failed: "
+                        << astcenc_get_error_string(status)
+                        <<  " " << data.size() << " " << ima.size();
         qFatal("Terminating");
     }
 

@@ -61,7 +61,8 @@ struct ThreadedJobData {
         CachedCompoundTile = 2,
         DEMTileReply = 3,
         DEMReady = 4,
-        Raster2ASTC = 5
+        Raster2ASTC = 5,
+        ASTCTileReply = 6
     };
 
     virtual ~ThreadedJobData() {}
@@ -279,6 +280,7 @@ public:
 
 signals:
     void tileReady(quint64 id, const TileKey k, std::shared_ptr<QImage>, QByteArray md5 = {});
+    void compressedTileDataReady(quint64 id, const TileKey k, std::shared_ptr<QByteArray>);
     void coverageReady(quint64 id, std::shared_ptr<QImage>);
     void requestHandlingFinished(quint64 id);
 
@@ -286,6 +288,7 @@ protected slots:
     void onTileReplyFinished();
     void onTileReplyForCoverageFinished();
     void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i, QByteArray md5);
+    void onInsertCompressedTileData(const quint64 id, const TileKey k, std::shared_ptr<QByteArray> data);
     void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
     void networkReplyError(QNetworkReply::NetworkError);
 
@@ -408,6 +411,7 @@ signals:
 
 protected slots:
     void onTileReady(quint64 id, const TileKey k,  std::shared_ptr<QImage> i, QByteArray md5);
+    void onCompressedTileDataReady(quint64 id, const TileKey k,  std::shared_ptr<QByteArray> d);
     void onCoverageReady(quint64 id,  std::shared_ptr<QImage> i);
     void onInsertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> h);
     void onInsertCoverageASTC(quint64 id, std::shared_ptr<CompressedTextureData> h);
@@ -649,6 +653,7 @@ public:
 
 signals:
     void insertTile(quint64 id, TileKey k, std::shared_ptr<QImage> i, QByteArray md5 = {});
+    void insertCompressedTileData(quint64 id, TileKey k, std::shared_ptr<QByteArray> d);
     void insertCoverage(quint64 id, std::shared_ptr<QImage> i);
     void expectingMoreSubtiles();
 
@@ -663,6 +668,7 @@ protected:
     QNetworkReply *m_reply{nullptr};
     MapFetcherWorker *m_mapFetcher{nullptr};
     bool m_computeHash{true}; // it's currently only false for DEM, so it tells whether it is a DEM image
+    bool m_emitUncompressedData{false};
 };
 
 struct TileReplyData : public ThreadedJobData {
@@ -749,6 +755,24 @@ struct DEMTileReplyData : public TileReplyData {
     JobType type() const override { return JobType::DEMTileReply; }
 };
 
+class ASTCTileReplyHandler : public TileReplyHandler {
+    Q_OBJECT
+public:
+    ASTCTileReplyHandler(QNetworkReply *reply,
+                     MapFetcherWorker &mapFetcher);
+    ~ASTCTileReplyHandler() override = default;
+
+    static int priority() { return TileReplyHandler::priority(); }
+};
+
+struct ASTCTileReplyData : public TileReplyData {
+    ASTCTileReplyData(QNetworkReply *reply,
+                     MapFetcherWorker &mapFetcher)
+    : TileReplyData(reply, mapFetcher) {}
+    ~ASTCTileReplyData() override {}
+    JobType type() const override { return JobType::ASTCTileReply; }
+};
+
 class DEMReadyHandler : public ThreadedJob
 {
     Q_OBJECT
@@ -806,40 +830,6 @@ struct DEMReadyData : public ThreadedJobData {
     std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> m_neighbors;
 };
 
-class Raster2ASTCHandler : public ThreadedJob
-{
-    Q_OBJECT
-public:
-    Raster2ASTCHandler(std::shared_ptr<QImage> rasterImage,
-                    const TileKey k,
-                    ASTCFetcherWorker &fetcher,
-                    quint64 id,
-                    bool coverage,
-                    QByteArray md5);
-
-    ~Raster2ASTCHandler() override = default;
-    const TileKey &tileKey() const {
-        return m_key;
-    }
-    static int priority() { return 9; }
-
-signals:
-    void insertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> i);
-    void insertCoverageASTC(quint64 id, std::shared_ptr<CompressedTextureData> i);
-
-public slots:
-    void process() override;
-
-private:
-    ASTCFetcherWorker *m_fetcher{nullptr};
-    std::shared_ptr<QImage> m_rasterImage;
-    quint64 m_requestId{0};
-    bool m_coverage;
-    TileKey m_key;
-    QByteArray m_md5;
-    bool m_forwardUncompressed{false};
-};
-
 struct Raster2ASTCData : public ThreadedJobData {
     Raster2ASTCData(std::shared_ptr<QImage> rasterImage,
                     const TileKey k,
@@ -851,17 +841,53 @@ struct Raster2ASTCData : public ThreadedJobData {
    , m_rasterImage(std::move(rasterImage)), m_k(k), m_fetcher(fetcher), m_id(id)
    , m_coverage(coverage), m_md5(std::move(md5))
    {}
+
+    Raster2ASTCData(std::shared_ptr<QByteArray> compressedImage,
+                    const TileKey k,
+                    ASTCFetcherWorker &fetcher,
+                    quint64 id,
+                    bool coverage)
+   : ThreadedJobData()
+   , m_compressedRaster(std::move(compressedImage)), m_k(k), m_fetcher(fetcher), m_id(id)
+   , m_coverage(coverage)
+   {}
+
     ~Raster2ASTCData() override {}
-    int priority() const override { return Raster2ASTCHandler::priority(); }
+    int priority() const override;
     JobType type() const override { return JobType::Raster2ASTC; }
 
     std::shared_ptr<QImage> m_rasterImage;
+    std::shared_ptr<QByteArray> m_compressedRaster;
     const TileKey m_k;
     ASTCFetcherWorker &m_fetcher;
     quint64 m_id;
     bool m_coverage;
     QByteArray m_md5;
 };
+
+class Raster2ASTCHandler : public ThreadedJob
+{
+    Q_OBJECT
+public:
+    Raster2ASTCHandler(Raster2ASTCData *d);
+
+    ~Raster2ASTCHandler() override = default;
+    const TileKey &tileKey() const {
+        return d->m_k;
+    }
+    static int priority() { return 9; }
+
+signals:
+    void insertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> i);
+    void insertCoverageASTC(quint64 id, std::shared_ptr<CompressedTextureData> i);
+
+public slots:
+    void process() override;
+
+private:
+    QScopedPointer<Raster2ASTCData> d;
+};
+
 
 inline uint qHash (const QPoint & key)
 {

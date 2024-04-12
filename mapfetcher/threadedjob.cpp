@@ -217,9 +217,12 @@ TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
 //            SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
     connect(this, &TileReplyHandler::insertTile,
             &mapFetcher, &MapFetcherWorker::onInsertTile, Qt::QueuedConnection);
+    connect(this, &TileReplyHandler::insertCompressedTileData,
+            &mapFetcher, &MapFetcherWorker::onInsertCompressedTileData, Qt::QueuedConnection);
     connect(this, &TileReplyHandler::insertCoverage,
             &mapFetcher, &MapFetcherWorker::onInsertCoverage, Qt::QueuedConnection);
     connect(this, &TileReplyHandler::insertTile, this, &ThreadedJob::finished);
+    connect(this, &TileReplyHandler::insertCompressedTileData, this, &ThreadedJob::finished);
     connect(this, &TileReplyHandler::insertCoverage, this, &ThreadedJob::finished);
     connect(this, &TileReplyHandler::expectingMoreSubtiles, this, &ThreadedJob::finished);
     connect(this, &ThreadedJob::error, this, &ThreadedJob::finished);
@@ -259,13 +262,19 @@ void TileReplyHandler::processStandaloneTile()
     QByteArray md5;
     if (z == dz) {
         k = TileKey{x,y,z};
-        auto tile = std::make_shared<QImage>(QImage::fromData(std::move(data)).mirrored(false, m_computeHash));
-        if (m_computeHash)
-            md5 = md5QImage(*tile);
-        emit insertTile(id,
-                        k,
-                        std::move(tile),
-                        std::move(md5));
+        if (m_emitUncompressedData) {
+            emit insertCompressedTileData(id,
+                                          k,
+                                          std::make_shared<QByteArray>(std::move(data)));
+        } else {
+            auto tile = std::make_shared<QImage>(QImage::fromData(std::move(data)).mirrored(false, m_computeHash));
+            if (m_computeHash)
+                md5 = md5QImage(*tile);
+            emit insertTile(id,
+                            k,
+                            std::move(tile),
+                            std::move(md5));
+        }
     } else if (z > dz) {
         int destSideLength = 1 << dz;
         int sideLength = 1 << z;
@@ -557,61 +566,51 @@ void DEMReadyHandler::process()
         emit insertHeightmap(m_requestId, m_key, h);
 }
 
+int Raster2ASTCData::priority() const { return Raster2ASTCHandler::priority(); }
 
-Raster2ASTCHandler::Raster2ASTCHandler(std::shared_ptr<QImage> rasterImage,
-                                       const TileKey k,
-                                       ASTCFetcherWorker &fetcher,
-                                       quint64 id,
-                                       bool coverage,
-                                       QByteArray md5)
-    : m_fetcher(&fetcher)
-    , m_rasterImage(std::move(rasterImage))
-    , m_requestId(id)
-    , m_coverage(coverage)
-    , m_key(k)
-    , m_md5(md5)
-    , m_forwardUncompressed(fetcher.forwardUncompressed())
+Raster2ASTCHandler::Raster2ASTCHandler(Raster2ASTCData *data)
+    : d(data)
 {
-    connect(this, &Raster2ASTCHandler::insertTileASTC, m_fetcher, &ASTCFetcherWorker::onInsertTileASTC, Qt::QueuedConnection);
-    connect(this, &Raster2ASTCHandler::insertCoverageASTC, m_fetcher, &ASTCFetcherWorker::onInsertCoverageASTC, Qt::QueuedConnection);
+    if (!d)
+        qFatal("Raster2ASTCHandler(): null data");
+    connect(this, &Raster2ASTCHandler::insertTileASTC, &d->m_fetcher, &ASTCFetcherWorker::onInsertTileASTC, Qt::QueuedConnection);
+    connect(this, &Raster2ASTCHandler::insertCoverageASTC, &d->m_fetcher, &ASTCFetcherWorker::onInsertCoverageASTC, Qt::QueuedConnection);
     connect(this, &Raster2ASTCHandler::insertCoverageASTC, this, &ThreadedJob::finished);
     connect(this, &Raster2ASTCHandler::insertTileASTC, this, &ThreadedJob::finished);
 }
 
 void Raster2ASTCHandler::process()
 {
-    if (!m_rasterImage) {
-        qWarning() << "NULL image in Compressed Texture Generation!";
-        return;
-    }
-    // Do this in ASTCFetcher::onInsertTile instead, to prevent ready compound tiles from being shown
-    // due to encoding tasks blocking the job queue
-//    if (m_forwardUncompressed && !ASTCEncoder::instance().isCached(m_md5)) {
-//        std::shared_ptr<ASTCCompressedTextureData> uncompressed =
-//                std::make_shared<ASTCCompressedTextureData>();
-//        uncompressed->m_image = m_rasterImage;
-//        auto t = std::static_pointer_cast<CompressedTextureData>(uncompressed);
-//        if (m_coverage)
-//            emit insertCoverageASTC(m_requestId, t);
-//        else
-//            emit insertTileASTC(m_requestId, m_key, t);
-//        QCoreApplication::processEvents();
-//    }
+    if (!d->m_rasterImage) {
+        if (!d->m_compressedRaster) {
+            qWarning() << "NULL image in Compressed Texture Generation!";
+            return;
+        }
+        d->m_rasterImage =
+                std::make_shared<QImage>(QImage::fromData(*d->m_compressedRaster).mirrored(false, true));
 
+        d->m_md5 = md5QImage(*d->m_rasterImage);
+    }
     std::shared_ptr<CompressedTextureData> t =
             std::static_pointer_cast<CompressedTextureData>(
-                ASTCCompressedTextureData::fromImage(m_rasterImage, m_md5));
+                ASTCCompressedTextureData::fromImage(d->m_rasterImage, d->m_md5));
 
-    if (m_coverage)
-        emit insertCoverageASTC(m_requestId, t);
+    if (d->m_coverage)
+        emit insertCoverageASTC(d->m_id, t);
     else
-        emit insertTileASTC(m_requestId, m_key, t);
+        emit insertTileASTC(d->m_id, d->m_k, t);
 }
 
 DEMTileReplyHandler::DEMTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)
 :   TileReplyHandler(reply, mapFetcher) {
     m_computeHash = false;
 }
+
+ASTCTileReplyHandler::ASTCTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)
+    :   TileReplyHandler(reply, mapFetcher) {
+        m_emitUncompressedData = true;
+    }
+
 
 quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 {
@@ -797,6 +796,7 @@ ThreadedJob *ThreadedJob::fromData(ThreadedJobData *data)
             ScopeExit(ThreadedJobData &data) : d{ &data } {}
             ~ScopeExit() { delete d; }
             ThreadedJobData *d;
+            void release() { d = nullptr; }
     };
     ScopeExit deleter(*data);
     switch (data->type()) {
@@ -809,6 +809,11 @@ ThreadedJob *ThreadedJob::fromData(ThreadedJobData *data)
         DEMTileReplyData *d = static_cast<DEMTileReplyData *>(data);
         return new DEMTileReplyHandler(d->m_reply,
                                        d->m_mapFetcher) ;
+    }
+    case ThreadedJobData::JobType::ASTCTileReply: {
+        ASTCTileReplyData *d = static_cast<ASTCTileReplyData *>(data);
+        return new ASTCTileReplyHandler(d->m_reply,
+                                        d->m_mapFetcher) ;
     }
     case ThreadedJobData::JobType::CachedCompoundTile: {
         CachedCompoundTileData *d = static_cast<CachedCompoundTileData *>(data);
@@ -830,12 +835,8 @@ ThreadedJob *ThreadedJob::fromData(ThreadedJobData *data)
     }
     case ThreadedJobData::JobType::Raster2ASTC: {
         Raster2ASTCData *d = static_cast<Raster2ASTCData *>(data);
-        return new Raster2ASTCHandler(std::move(d->m_rasterImage),
-                                      d->m_k,
-                                      d->m_fetcher,
-                                      d->m_id,
-                                      d->m_coverage,
-                                      std::move(d->m_md5));
+        deleter.release();
+        return new Raster2ASTCHandler(std::move(d));
     }
     default:
         return nullptr;
