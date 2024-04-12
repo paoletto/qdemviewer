@@ -99,6 +99,7 @@ struct Heightmap {
     void rescale(int size);
     void setSize(QSize size, float initialValue = .0f);
     QSize size() const;
+    void printMinMax() const;
 
     float elevation(int x, int y) const;
     void setElevation(int x, int y, float e);

@@ -444,6 +444,17 @@ void Heightmap::setSize(QSize size, float initialValue)
 
 QSize Heightmap::size() const {return m_size;}
 
+void Heightmap::printMinMax() const
+{
+    float minValue = qInf();
+    float maxValue = -qInf();
+    for (const auto &v: elevations) {
+        minValue = qMin(v, minValue);
+        maxValue = qMax(v, maxValue);
+    }
+    qDebug() << "Heightmap min "<<minValue<<" - max "<<maxValue;
+}
+
 float Heightmap::elevation(int x, int y) const
 {
     return elevations[y*m_size.width()+x];
