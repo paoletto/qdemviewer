@@ -602,7 +602,7 @@ struct Tile
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
         const auto tileMatrix = tileTransformation(origin);
-        ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_WRITE, GL_RGBA8); // TODO: test readonly
+        ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8); // TODO: test readonly
 
         shader->bind();
         f->glEnable(GL_TEXTURE_2D);
