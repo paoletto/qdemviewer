@@ -792,7 +792,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
         std::set<GeoTileSpec> srcTiles;
         auto &compoundCache = CompoundTileCache::instance();
         for (const auto &dt: tiles) {
-            if (compoundCache.initialized()) {
+            if (compound && compoundCache.initialized()) {
                 QByteArray data = compoundCache.tileMD5(urlTemplate,
                                                 dt.ts.x(),
                                                 dt.ts.y(),
