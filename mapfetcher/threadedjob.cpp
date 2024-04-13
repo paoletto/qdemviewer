@@ -135,7 +135,6 @@ ThreadedJobQueue::ThreadedJobQueue(size_t numThread, QObject *parent): QObject(p
     m_threads.resize(numThread);
     for (size_t i = 0; i < numThread; ++i) {
         m_threads[i] = new QThread;
-        m_threads[i]->setPriority(QThread::LowPriority); // TODO: try lowest?
         m_threads[i]->setObjectName("ThreadedJobQueue " + objectName() + " Thread " + QString::number(i));
         m_currentJobs[m_threads[i]] = nullptr;
     }
@@ -190,8 +189,10 @@ void ThreadedJobQueue::next(QThread *t) {
         m_currentJobs[t] = job;
         m_jobs.pop();
 
-        if (!t->isRunning())
+        if (!t->isRunning()) {
             t->start();
+            t->setPriority(QThread::LowPriority); // TODO: try lowest?
+        }
 
         QMetaObject::invokeMethod(job,
                                   "process",
