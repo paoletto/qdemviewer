@@ -713,6 +713,7 @@ void ASTCCompressedTextureData::initStatics() {
     if (m_white256.size())
         return;
     Q_INIT_RESOURCE(qmake_mapfetcher_res);
+    m_white256.resize(1);
     m_white256[0].load(":/white256.png");
     loadASTCMips("white", m_white8x8ASTC);
     loadASTCMips("transparent", m_transparent8x8ASTC);
