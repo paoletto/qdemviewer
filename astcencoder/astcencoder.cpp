@@ -131,7 +131,7 @@ struct astc_header
 
 ASTCEncoder &ASTCEncoder::instance()
 {
-    static ASTCEncoder instance;
+    thread_local ASTCEncoder instance;
     return instance;
 }
 
@@ -283,13 +283,15 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
         md5 = ch.result();
     }
     QSize size = ima.size();
+    QImage halved;
+
     QByteArray cached = d->m_tileCache.tile(md5,
                                          d->block_x,
                                          d->block_y,
                                          d->quality,
                                          size.width(),
                                          size.height());
-    QImage halved;
+
     if (cached.size()) {
         out.push_back(fromCached(cached));
 

@@ -614,7 +614,7 @@ ASTCFetcherWorker *NetworkIOManager::getASTCFetcherWorker(ASTCFetcher *f) {
     if (it == m_astcFetcher2Worker.end()) {
         init();
         if (!m_workerASTC)
-            m_workerASTC = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue);
+            m_workerASTC = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue(8));
         w = new ASTCFetcherWorker(this, f, m_worker, m_workerASTC);
         m_astcFetcher2Worker.insert({f, w});
         connect(w,

@@ -91,6 +91,10 @@ signals:
     void finished();
     void start();
     void error();
+    void jobDestroyed(QObject *, QThread *);
+
+private slots:
+    void onDestroyed(QObject *);
 
 friend class ThreadedJobQueue;
 };
@@ -99,21 +103,24 @@ class ThreadedJobQueue: public QObject
 {
 Q_OBJECT
 public:
-    ThreadedJobQueue(QObject *parent = nullptr);
+    ThreadedJobQueue(size_t numThread = 1, QObject *parent = nullptr);
     ~ThreadedJobQueue() override;
 
     void schedule(ThreadedJobData *data);
 
 protected slots:
-    void next();
+    void onJobDestroyed(QObject *, QThread *);
 
 protected:
+    void next(QThread *t);
+    QThread *findIdle();
+
     struct JobComparator {
         bool operator()(const ThreadedJobData * l, const ThreadedJobData * r) const;
     };
     std::priority_queue<ThreadedJobData*, std::vector<ThreadedJobData *>,  JobComparator> m_jobs;
-    QAtomicPointer<QObject> m_currentJob{nullptr};
-    QThread m_thread;
+    std::unordered_map<QThread *, QObject *> m_currentJobs;
+    std::vector<QThread *> m_threads;
 };
 
 class ThrottledNetworkFetcher : public QObject

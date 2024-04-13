@@ -123,24 +123,33 @@ bool isEven(const QSize &s) {
 }
 } // namespace
 
-bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJobData *l, const ThreadedJobData *r) const {
+bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJobData *l, const ThreadedJobData *r) const
+{
     if (l && r)
         return r->priority() < l->priority();
     return false;
-
-//    const DEMReadyHandler *lDEM = qobject_cast<const DEMReadyHandler *>(l);
-//    const DEMReadyHandler *rDEM = qobject_cast<const DEMReadyHandler *>(r);
-//    return (rDEM && lDEM && rDEM->tileKey() < lDEM->tileKey()) || (rDEM && !lDEM);
 }
 
-ThreadedJobQueue::ThreadedJobQueue(QObject *parent): QObject(parent) {
-//    connect(&m_thread, &QThread::finished,
-//            this, &ThreadedJobQueue::next, Qt::QueuedConnection);
-    m_thread.setObjectName("ThreadedJobQueue Thread");
+ThreadedJobQueue::ThreadedJobQueue(size_t numThread, QObject *parent): QObject(parent)
+{
+    m_threads.resize(numThread);
+    for (size_t i = 0; i < numThread; ++i) {
+        m_threads[i] = new QThread;
+        m_threads[i]->setPriority(QThread::LowPriority); // TODO: try lowest?
+        m_threads[i]->setObjectName("ThreadedJobQueue " + objectName() + " Thread " + QString::number(i));
+        m_currentJobs[m_threads[i]] = nullptr;
+    }
 }
 
-ThreadedJobQueue::~ThreadedJobQueue() {
+ThreadedJobQueue::~ThreadedJobQueue() {}
 
+QThread *ThreadedJobQueue::findIdle()
+{
+    for (auto it: m_currentJobs) {
+        if (it.second == nullptr)
+            return it.first;
+    }
+    return nullptr;
 }
 
 void ThreadedJobQueue::schedule(ThreadedJobData *handler) {
@@ -150,43 +159,57 @@ void ThreadedJobQueue::schedule(ThreadedJobData *handler) {
     }
     m_jobs.push(handler);
 
-    if (!m_currentJob) {
-        next();
-    }
+    next(findIdle());
 }
 
-void ThreadedJobQueue::next() {
-//    if (m_thread.isRunning())
-//        return;
+void ThreadedJobQueue::onJobDestroyed(QObject *o, QThread *t)
+{
+    Q_UNUSED(o)
+    if (m_currentJobs.find(t) == m_currentJobs.end())
+        qFatal("Job destroyed from the wrong thread!");
+    m_currentJobs[t] = nullptr;
+    next(findIdle());
+}
+
+void ThreadedJobQueue::next(QThread *t) {
+    if (!t)
+        return;
+
     if (m_jobs.empty()) {
-        m_currentJob = nullptr;
         return;
     }
     auto jobData = m_jobs.top();
     auto job = ThreadedJob::fromData(jobData);
     if (!job) {// impossible?
         qWarning() << "ThreadedJobQueue::next : null next job!";
-        next();
+        next(t);
     }  else  {
-        job->move2thread(m_thread);
-        connect(job, &ThreadedJob::destroyed,
-                this, &ThreadedJobQueue::next, Qt::QueuedConnection);
-        m_currentJob = job;
+        job->move2thread(*t);
+        connect(job, &ThreadedJob::jobDestroyed,
+                this, &ThreadedJobQueue::onJobDestroyed, Qt::QueuedConnection);
+        m_currentJobs[t] = job;
         m_jobs.pop();
 
-        if (!m_thread.isRunning())
-            m_thread.start();
+        if (!t->isRunning())
+            t->start();
 
-        QMetaObject::invokeMethod(m_currentJob,
+        QMetaObject::invokeMethod(job,
                                   "process",
                                   Qt::QueuedConnection);
     }
     QCoreApplication::processEvents(); // Somehow not helping
 }
 
+
 ThreadedJob::ThreadedJob()
 {
     connect(this, &ThreadedJob::finished, this, &QObject::deleteLater);
+    connect(this, &QObject::destroyed, this, &ThreadedJob::onDestroyed);
+}
+
+void ThreadedJob::onDestroyed(QObject *j)
+{
+    emit jobDestroyed(j, QThread::currentThread());
 }
 
 // Might not be needed, according to doc "When a QObject is moved to another thread, all its children will be automatically moved too."

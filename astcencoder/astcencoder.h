@@ -34,8 +34,6 @@ class ASTCEncoder
 public:
     static ASTCEncoder& instance();
 
-    QTextureFileData compress(QImage ima);
-
     static QImage halve(const QImage &src);
 
     static int blockSize();
@@ -46,6 +44,9 @@ public:
     static void generateMips(QImage ima, std::vector<QImage> &out);
 
     bool isCached(const QByteArray &md5);
+
+protected:
+    QTextureFileData compress(QImage ima);
 
 private:
     ASTCEncoder();
