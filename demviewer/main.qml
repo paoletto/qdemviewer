@@ -91,6 +91,7 @@ QC2.ApplicationWindow {
         property alias joinTiles: joinTilesMenuItem.checked
         property alias astc: astc.checked
         property alias logging: logRequests.checked
+        property alias autoStride: autoStrideMenuItem.checked
         property int selectedProvider: 0
         property var modelTransformation
 
@@ -206,6 +207,8 @@ QC2.ApplicationWindow {
             QC2.MenuItem {
                 id: joinTilesMenuItem
                 text: qsTr("Join Tiles")
+                visible: false
+                height: 0
                 checkable: true
                 checked: true
                 QC2.ToolTip.visible: hovered
@@ -243,6 +246,16 @@ QC2.ApplicationWindow {
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
                 QC2.ToolTip.text: "Split mesh quads along the other diagonal"
+                QC2.ToolTip.delay: 300
+            }
+            QC2.MenuItem {
+                id: autoStrideMenuItem
+                checkable: true;
+                checked: true
+                text: qsTr("Auto decimation")
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Automatically select decimation based on zoom"
                 QC2.ToolTip.delay: 300
             }
             QC2.MenuItem {
@@ -721,7 +734,7 @@ QC2.ApplicationWindow {
                     logRequests: logNetworkRequests.checked
                     astcEnabled: astc.checked
                     fastInteraction: fastInteractionMenuItem.checked
-                    autoRefinement: autoRefinementMenuItem.checked
+                    autoRefinement: autoStrideMenuItem.checked //autoRefinementMenuItem.checked
                     downsamplingRate: decimationSlider.rate
 
                     Component.onCompleted: {

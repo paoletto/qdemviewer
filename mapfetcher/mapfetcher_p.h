@@ -522,12 +522,10 @@ protected:
     std::unordered_map<ASTCFetcher *, ASTCFetcherWorker *> m_astcFetcher2Worker;
 };
 
-// singleton to use a single QNAM
 struct LoopedThread : public QThread {
     LoopedThread(QObject *parent = nullptr) : QThread(parent) {}
     ~LoopedThread() override = default;
 
-    // Somehow this isn't really helping.
     void run() override {
         exec();
     }
@@ -888,7 +886,7 @@ class Raster2ASTCHandler : public ThreadedJob
 public:
     Raster2ASTCHandler(Raster2ASTCData *d);
 
-    ~Raster2ASTCHandler() override = default;
+    ~Raster2ASTCHandler() override {}
     const TileKey &tileKey() const {
         return d->m_k;
     }

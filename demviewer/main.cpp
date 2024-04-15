@@ -101,6 +101,32 @@ int keyToLayer(const TileKey &superk, const TileKey &subk) {
     const quint64 yorig = superk.y * subdivisionLength;
     return (subk.y - yorig) * subdivisionLength + (subk.x - xorig);
 }
+std::array<QVector3D, 4> quad{{{0.,0.,0.},{1.,0.,0.},{1.,1.,0.},{0.,1.,0.}}};
+float screenSpaceTileSize(const QMatrix4x4 &m) {
+    const auto p0 = m * quad[0];
+    const auto p1 = m * quad[1];
+    const auto p2 = m * quad[2];
+    const auto p3 = m * quad[3];
+    const auto d0 = p2.toVector2D() - p0.toVector2D();
+    const auto d1 = p3.toVector2D() - p1.toVector2D();
+    const auto tileSizeNormalized = qMax(d0.length(), d1.length());
+
+    const float radius = 1. + tileSizeNormalized;
+    if (   p0.x() < -radius || p0.x() > radius || p0.y() < -radius || p0.y() > radius
+        || p1.x() < -radius || p1.x() > radius || p1.y() < -radius || p1.y() > radius
+        || p2.x() < -radius || p2.x() > radius || p2.y() < -radius || p2.y() > radius
+        || p3.x() < -radius || p3.x() > radius || p3.y() < -radius || p3.y() > radius) {
+        return -1; // TODO: broken! needs to keep elevation * scale into account!!!
+    }
+    return tileSizeNormalized;
+}
+//QPointF tileCenterScreen(const QMatrix4x4 &m) {
+//    return (m * QVector3D(.5,.5,0)).toPointF();
+//}
+//bool viewportContains(const QPointF &p, float tileSizeNormalized) {
+//    float radius = 1. + tileSizeNormalized * .5;
+//    return p.x() >= -radius && p.x() <= radius && p.y() >= -radius && p.y() <= radius;
+//}
 }
 struct Origin {
     static void draw(const QMatrix4x4 &transformation,
@@ -495,6 +521,7 @@ struct Tile
             m_texDem->setData(QOpenGLTexture::Red,
                               QOpenGLTexture::Float32,
                               (const void *) &(h.elevations.front()));
+
             m_dem = Heightmap();
         }
         return m_texDem;
@@ -522,12 +549,14 @@ struct Tile
 
     void draw(const QMatrix4x4 &transformation,
               const Tile& origin,
+              const QSize viewportSize,
               const float elevationScale,
               const float brightness,
               const int tessellationDirection,
               const QVector3D &lightDirection,
               bool interactive,
               bool joinTiles,
+              bool autoStride,
               int downsamplingRate)
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
@@ -589,6 +618,18 @@ struct Tile
         if (m_resolution.isEmpty())
             return; // skip drawing the tile
 
+        const auto tileMatrix = tileTransformation(origin);
+        const QMatrix4x4 m = transformation * tileMatrix;
+        const float tileSize = screenSpaceTileSize(m);
+
+        if (tileSize < 0)
+            return; // TODO: improve
+
+        const float tileSizePixels = tileSize * viewportSize.width();
+
+        int idealRate = qMax<int>(1, 256. / (1 << int(ceil(log2(tileSizePixels)))));
+
+
         auto rasterTxt = mapTexture();
         // TODO: streamline, fix, deduplicate
         QOpenGLShaderProgram *shader = (rasterTxt) ? m_shaderTextured
@@ -601,7 +642,6 @@ struct Tile
         }
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
-        const auto tileMatrix = tileTransformation(origin);
         ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8); // TODO: test readonly
 
         shader->bind();
@@ -612,7 +652,11 @@ struct Tile
             m_texWhite->bind();
         }
 
-        int stride = (interactive) ? downsamplingRate : 1;
+        int stride = (interactive) ?
+                        qBound(1 ,
+                               autoStride ? qMax(downsamplingRate, idealRate) : downsamplingRate,
+                               128)
+                        : 1;
 
         auto resolution = m_resolution;
         if (joinTiles && interactive)
@@ -621,7 +665,8 @@ struct Tile
         shader->setUniformValue("resolution", resolution);
 
         shader->setUniformValue("elevationScale", elevationScale);
-        const QMatrix4x4 m = transformation * tileMatrix;
+
+
         shader->setUniformValue("matrix", m);
         shader->setUniformValue("color", QColor(255,255,255,255));
 
@@ -868,18 +913,20 @@ protected:
 //        f45->glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
 
 
-        const bool fast = (m_interactive && m_fastInteraction) || (m_fastInteraction && !m_autoRefinement);
+        const bool fast = true; //(m_interactive && m_fastInteraction) || (m_fastInteraction && !m_autoRefinement);
 
         Origin::draw(m_arcballTransform, 1);
         for (auto &t: m_tiles) {
             t.second->draw(m_arcballTransform,
                    *m_tiles.begin()->second,
+                   m_fbo->size(),
                    m_elevationScale,
                    m_brightness,
                    m_tessellationDirection,
                    m_lightDirection,
                    fast,
                    m_joinTiles,
+                   m_autoRefinement,
                    m_downsamplingRate);
         }
 
@@ -934,6 +981,8 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
     Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
+    Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
+
 
 public:
     TerrainViewer(QQuickItem *parent = nullptr) : QQuickFramebufferObject(parent) {
