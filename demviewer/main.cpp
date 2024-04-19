@@ -153,8 +153,10 @@ struct Origin {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         m_shader->bind();
         QMatrix4x4 matData;
+#if 0
         matData.scale({1,1,.45});
         matData.translate({.5,.5, 0});
+#endif
         m_shader->setUniformValue("matData", matData);
 
         const QVector4D vertices[12] = {
@@ -587,14 +589,15 @@ struct Tile
     void draw(const QMatrix4x4 &transformation,
               const Tile& origin,
               const QSize viewportSize,
-              const float elevationScale,
+              float elevationScale,
               const float brightness,
               const int tessellationDirection,
               const QVector3D &lightDirection,
               bool interactive,
               bool joinTiles,
               bool autoStride,
-              int downsamplingRate)
+              int downsamplingRate,
+              bool geoReferenced)
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
 
@@ -655,8 +658,12 @@ struct Tile
         if (m_resolution.isEmpty())
             return; // skip drawing the tile
 
-//        const auto tileMatrix = tileTransformation(origin);
-        const auto tileMatrix = tileTransformationMercator();
+        QMatrix4x4 tileMatrix;
+        if (geoReferenced)
+            tileMatrix = tileTransformationMercator();
+        else
+            tileMatrix = tileTransformation(origin);
+
         const QMatrix4x4 m = transformation * tileMatrix;
 #if 1
         const float tileSize = screenSpaceTileSize(m);
@@ -705,17 +712,13 @@ struct Tile
         resolution /= stride;
         shader->setUniformValue("resolution", resolution);
 
-        shader->setUniformValue("elevationScale", elevationScale * 12742);
+        if (geoReferenced)
+            elevationScale *= 1000; // TODO: use map pixel size in meters from the actual spot
+        shader->setUniformValue("elevationScale", elevationScale);
 
 
         shader->setUniformValue("matrix", m);
         shader->setUniformValue("color", QColor(255,255,255,255));
-
-//        if (!rasterTxt || rasterTxt->layers() == 1) {
-//            shader->setUniformValue("raster", 0);
-//        } else {
-//            shader->setUniformValue("rasterArray",0);
-//        }
         shader->setUniformValue("samplingStride", stride);
         shader->setUniformValue("brightness", (rasterTxt) ? brightness : 1.0f );
         shader->setUniformValue("quadSplitDirection", tessellationDirection);
@@ -970,7 +973,9 @@ protected:
 
         const bool fast = true; //(m_interactive && m_fastInteraction) || (m_fastInteraction && !m_autoRefinement);
 
-        Origin::draw(m_arcballTransform, m_cameraCenter, 1);
+        if (!m_geoReferenced)
+            Origin::draw(m_arcballTransform, m_cameraCenter, 1);
+
         for (auto &t: m_tiles) {
             t.second->draw(m_arcballTransform,
                    *m_tiles.begin()->second,
@@ -982,7 +987,8 @@ protected:
                    fast,
                    m_joinTiles,
                    m_autoRefinement,
-                   m_downsamplingRate);
+                   m_downsamplingRate,
+                   m_geoReferenced);
         }
 
 //        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
@@ -1013,6 +1019,7 @@ protected:
     bool m_fastInteraction{false};
     bool m_autoRefinement{false};
     int m_downsamplingRate{8};
+    bool m_geoReferenced{false};
     QDoubleVector3D m_cameraCenter;
     std::map<TileKey, std::shared_ptr<Tile>> m_tiles {};
     // TODO use a state struct
@@ -1040,7 +1047,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
     Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
-
+    Q_PROPERTY(bool geoReferenced READ geoReferenced WRITE setGeoReferenced NOTIFY geoReferencedChanged)
 
 public:
     TerrainViewer(QQuickItem *parent = nullptr) : QQuickFramebufferObject(parent) {
@@ -1247,6 +1254,18 @@ public:
         emit fastInteractionChanged();
     }
 
+    bool geoReferenced() const {
+        return m_geoReferenced;
+    }
+
+    void setGeoReferenced(bool enabled) {
+        if (m_geoReferenced == enabled)
+            return;
+        m_geoReferenced = enabled;
+        interactiveUpdate();
+        emit geoReferencedChanged();
+    }
+
 
     bool autoRefinement() const {
         return m_autoRefinement;
@@ -1279,6 +1298,7 @@ signals:
     void fastInteractionChanged();
     void autoRefinementChanged();
     void logRequestsChanged();
+    void geoReferencedChanged();
 
 protected:
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *data) override {
@@ -1374,6 +1394,7 @@ private:
     bool m_interactive{false};
     bool m_fastInteraction{false};
     bool m_autoRefinement{false};
+    bool m_geoReferenced{false};
     int m_downsamplingRate{8};
     QPointF m_lightDirection;
     QTimer m_updateTimer;
@@ -1410,23 +1431,6 @@ public:
         qreal ydiffpct = diff.y() / qMax<double>(screenSize.height() - 1, 1);
 
         return QPointF(-xdiffpct, -ydiffpct);
-    }
-    QDoubleMatrix4x4 pMatrix() const {
-        QDoubleMatrix4x4 projectionMatrix;
-        projectionMatrix.frustum(-m_halfWidth, m_halfWidth, -m_halfHeight, m_halfHeight, m_nearPlane, m_farPlane);
-        return projectionMatrix;
-    }
-    QDoubleMatrix4x4 screenTransformation() const {
-        QPointF offsetPct = marginsOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
-        QDoubleMatrix4x4 matScreenTransformation;
-        matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-        matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
-        matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
-
-        matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-        matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
-        matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
-        return matScreenTransformation;
     }
     QDoubleMatrix4x4 projectionTransformationWebMercator() const {
         QDoubleMatrix4x4 matrix;
@@ -1533,7 +1537,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
     if (viewer && viewer->m_arcball)
         m_arcballTransform = viewer->m_arcball->transformation();
 
-    if (viewer && viewer->m_map) {
+    if (viewer && viewer->m_geoReferenced && viewer->m_map) {
         const QGeoProjection &p = viewer->m_map->map()->geoProjection();
         QGeoProjectionWebMercatorCustom pc(static_cast<const QGeoProjectionWebMercator&>(p));
 //        m_arcballTransform = p.projectionTransformation();
@@ -1562,6 +1566,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
         m_fastInteraction = viewer->m_fastInteraction;
         m_autoRefinement = viewer->m_autoRefinement;
         m_downsamplingRate = viewer->m_downsamplingRate;
+        m_geoReferenced = viewer->m_geoReferenced;
 
         std::map<TileKey, std::shared_ptr<Heightmap>> newTiles;
         newTiles.swap(viewer->m_newTiles);

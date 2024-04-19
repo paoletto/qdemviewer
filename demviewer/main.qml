@@ -96,6 +96,7 @@ QC2.ApplicationWindow {
         property alias modelZoom: baseMap2.zoomLevel
         property alias modelBearing: baseMap2.bearing
         property alias modelTilt: baseMap2.tilt
+        property alias geoReferencing: geoReferencedMenuItem.checked
         property int selectedProvider: 0
         property var modelTransformation
         property var splitViewState
@@ -211,6 +212,16 @@ QC2.ApplicationWindow {
         }
         QC2.Menu {
             title: qsTr("Rendering")
+            QC2.MenuItem {
+                id: geoReferencedMenuItem
+                text: qsTr("Geo Referencing")
+                checkable: true
+                checked: false
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Render the mesh on top of a map"
+                QC2.ToolTip.delay: 300
+            }
             QC2.MenuItem {
                 id: joinTilesMenuItem
                 text: qsTr("Join Tiles")
@@ -733,6 +744,7 @@ QC2.ApplicationWindow {
 
                 Map {
                     id: baseMap2
+                    visible: settings.geoReferencing
                     plugin: basemap.plugin
                     anchors.fill: parent
                     opacity: 0.79
@@ -759,6 +771,7 @@ QC2.ApplicationWindow {
                     autoRefinement: autoStrideMenuItem.checked //autoRefinementMenuItem.checked
                     downsamplingRate: decimationSlider.rate
                     map: baseMap2
+                    geoReferenced: settings.geoReferencing
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation
@@ -770,21 +783,22 @@ QC2.ApplicationWindow {
                         arcball.setSize(Qt.size(viewer.width, viewer.height))
                     }
 
-//                    MouseArea {
-//                        anchors.fill: parent
-//                        acceptedButtons: Qt.LeftButton | Qt.MidButton
-//                        onPressed: {
-//                            if (mouse.buttons & Qt.LeftButton)
-//                                arcball.pressed(Qt.point(mouse.x, mouse.y))
-//                            else if (mouse.buttons & Qt.MidButton)
-//                                arcball.midPressed(Qt.point(mouse.x, mouse.y))
-//                        }
-//                        onPositionChanged: arcball.moved(Qt.point(mouse.x, mouse.y))
-//                        onReleased: arcball.released()
-//                        onWheel: {
-//                            arcball.zoom(wheel.angleDelta.y / 120.0);
-//                        }
-//                    }
+                    MouseArea {
+                        enabled: !settings.geoReferencing
+                        anchors.fill: parent
+                        acceptedButtons: Qt.LeftButton | Qt.MidButton
+                        onPressed: {
+                            if (mouse.buttons & Qt.LeftButton)
+                                arcball.pressed(Qt.point(mouse.x, mouse.y))
+                            else if (mouse.buttons & Qt.MidButton)
+                                arcball.midPressed(Qt.point(mouse.x, mouse.y))
+                        }
+                        onPositionChanged: arcball.moved(Qt.point(mouse.x, mouse.y))
+                        onReleased: arcball.released()
+                        onWheel: {
+                            arcball.zoom(wheel.angleDelta.y / 120.0);
+                        }
+                    }
                 }
                 QC2.Slider {
                     id: elevationSlider
