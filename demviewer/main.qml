@@ -31,7 +31,7 @@ import DemViewer 1.0
 
 QC2.ApplicationWindow {
     id: root
-    width: 1400
+    width: 1404
     height: 700
     visible: true
     title: qsTr("DEM Viewer")
@@ -92,13 +92,20 @@ QC2.ApplicationWindow {
         property alias astc: astc.checked
         property alias logging: logRequests.checked
         property alias autoStride: autoStrideMenuItem.checked
+        property alias modelCenter: baseMap2.center
+        property alias modelZoom: baseMap2.zoomLevel
+        property alias modelBearing: baseMap2.bearing
+        property alias modelTilt: baseMap2.tilt
         property int selectedProvider: 0
         property var modelTransformation
+        property var splitViewState
 
         Component.onCompleted: {
             mapFetcher.forwardUncompressedTiles = false
 //                    Qt.binding(function() { return settings.forwardUncompressed })
+            splitView.restoreState(settings.splitViewState)
         }
+        Component.onDestruction: settings.splitViewState = splitView.saveState()
     }
 
     menuBar: QC2.MenuBar {
@@ -439,6 +446,7 @@ QC2.ApplicationWindow {
     }
 
     QC2.SplitView {
+        id: splitView
         anchors.fill: parent
         Item {
             QC2.SplitView.preferredWidth: parent.width * .5
@@ -450,6 +458,7 @@ QC2.ApplicationWindow {
                     zoomLevel: overlay.zoomLevel
                     anchors.fill: parent
                     gesture.enabled: false
+                    copyrightsVisible: false
                     opacity: 0.99
                     plugin: Plugin {
                         name: "osm"
@@ -481,6 +490,7 @@ QC2.ApplicationWindow {
                     anchors.fill: basemap
                     color: "transparent"
                     opacity: 0.9
+                    copyrightsVisible: false
 
                     // Do not allow rotation, to avoid headaches
                     gesture.acceptedGestures: MapGestureArea.PanGesture | MapGestureArea.FlickGesture | MapGestureArea.PinchGesture
@@ -501,6 +511,7 @@ QC2.ApplicationWindow {
                         path: (overlay.displayedSelectionPolygon.length != 0)
                               ? overlay.displayedSelectionPolygon
                               : overlay.selectionPolygon
+                        autoFadeIn: false
                     }
 
 
@@ -719,6 +730,17 @@ QC2.ApplicationWindow {
             Rectangle {
                 anchors.fill: parent
                 color: "green"
+
+                Map {
+                    id: baseMap2
+                    plugin: basemap.plugin
+                    anchors.fill: parent
+                    opacity: 0.79
+                    copyrightsVisible: false
+                    gesture.enabled: true
+                    gesture.acceptedGestures: MapGestureArea.PanGesture | MapGestureArea.FlickGesture | MapGestureArea.PinchGesture | MapGestureArea.RotationGesture | MapGestureArea.TiltGesture
+                }
+
                 TerrainViewer {
                     id: viewer
                     anchors.fill: parent
@@ -736,6 +758,7 @@ QC2.ApplicationWindow {
                     fastInteraction: fastInteractionMenuItem.checked
                     autoRefinement: autoStrideMenuItem.checked //autoRefinementMenuItem.checked
                     downsamplingRate: decimationSlider.rate
+                    map: baseMap2
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation
@@ -747,21 +770,21 @@ QC2.ApplicationWindow {
                         arcball.setSize(Qt.size(viewer.width, viewer.height))
                     }
 
-                    MouseArea {
-                        anchors.fill: parent
-                        acceptedButtons: Qt.LeftButton | Qt.MidButton
-                        onPressed: {
-                            if (mouse.buttons & Qt.LeftButton)
-                                arcball.pressed(Qt.point(mouse.x, mouse.y))
-                            else if (mouse.buttons & Qt.MidButton)
-                                arcball.midPressed(Qt.point(mouse.x, mouse.y))
-                        }
-                        onPositionChanged: arcball.moved(Qt.point(mouse.x, mouse.y))
-                        onReleased: arcball.released()
-                        onWheel: {
-                            arcball.zoom(wheel.angleDelta.y / 120.0);
-                        }
-                    }
+//                    MouseArea {
+//                        anchors.fill: parent
+//                        acceptedButtons: Qt.LeftButton | Qt.MidButton
+//                        onPressed: {
+//                            if (mouse.buttons & Qt.LeftButton)
+//                                arcball.pressed(Qt.point(mouse.x, mouse.y))
+//                            else if (mouse.buttons & Qt.MidButton)
+//                                arcball.midPressed(Qt.point(mouse.x, mouse.y))
+//                        }
+//                        onPositionChanged: arcball.moved(Qt.point(mouse.x, mouse.y))
+//                        onReleased: arcball.released()
+//                        onWheel: {
+//                            arcball.zoom(wheel.angleDelta.y / 120.0);
+//                        }
+//                    }
                 }
                 QC2.Slider {
                     id: elevationSlider
