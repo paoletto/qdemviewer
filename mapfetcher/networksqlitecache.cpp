@@ -21,6 +21,7 @@
 #include "networksqlitecache_p.h"
 #include <QFileInfo>
 #include <QRandomGenerator>
+#include <QDateTime>
 
 namespace {
 class ScopeExit {
@@ -144,6 +145,8 @@ QNetworkCacheMetaData NetworkSqliteCache::metaData(const QUrl &url) {
         QNetworkCacheMetaData res;
         in >> res;
 
+        //TODO: enable this conditionally
+        res.setExpirationDate(QDateTime::currentDateTime().addDays(365));
         return res;
     }
     return {};
