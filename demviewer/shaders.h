@@ -141,6 +141,7 @@ void main()
     const vec3 second = triVertex1.xyz - triVertex0.xyz;
     normal = normalize(cross(first, second));
 
+
 //    texCoord = clamp(vec2(x + cOff, y + cOff) * texCoordScaling, vec2(0,0), vec2(1,1));
     texCoord = vertex.xy;
     gl_Position = matrix * vertex;
@@ -201,7 +202,7 @@ vec4 neighbor(int id, int x, int y) {
                      , 0
                      , int(heightmapResolution.x) - 1);
 
-    const float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) / elevationScale;
+    float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) * elevationScale;
     res = vec4(float(iX) + cOff,
                float(iiY) + cOff,
                elevation,
@@ -227,6 +228,7 @@ void main()
     const vec3 first = triVertex2.xyz - triVertex0.xyz;
     const vec3 second = triVertex1.xyz - triVertex0.xyz;
     normal = normalize(cross(first, second));
+//    normal = normalize(vec3(-1,-1,0));
 
 //    texCoord = clamp(vec2(x + cOff, y + cOff) * texCoordScaling, vec2(0,0), vec2(1,1));
     texCoord = vertex.xy;

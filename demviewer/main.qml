@@ -802,10 +802,10 @@ QC2.ApplicationWindow {
                 }
                 QC2.Slider {
                     id: elevationSlider
-                    from: 1
-                    to: 8000
+                    from: 0.1
+                    to: 10
                     value: 700
-                    stepSize: 1
+                    stepSize: 0.05
                     anchors {
                         left: parent.left
                         right: parent.right
@@ -818,7 +818,7 @@ QC2.ApplicationWindow {
                     QC2.ToolTip {
                         parent: elevationSlider.handle
                         visible: elevationSlider.pressed
-                        text: elevationSlider.value.toFixed(0)
+                        text: elevationSlider.value.toFixed(2)
                     }
                 }
                 Text {
