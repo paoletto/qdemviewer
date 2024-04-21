@@ -293,6 +293,9 @@ public:
                             zoom,
                             destZoom,
                             false);
+            QEventLoop waiter;
+            QTimer::singleShot(1500, &waiter, SLOT(quit())); // wait a bit and have the previous request properly queued
+            waiter.exec();
         }
     }
 
@@ -677,9 +680,10 @@ struct Tile
         if (tileSize < 0)
             return; // TODO: improve
 
-        const float tileSizePixels = tileSize * viewportSize.width();
+        const float tileSizePixels = tileSize * viewportSize.width() * .5;
+        const double tileSizeOnScreen = (1 << qMax<int>(0, int(floor(log2(tileSizePixels)))));
 
-        int idealRate = qMax<int>(1, 256. / (1 << int(ceil(log2(tileSizePixels)))));
+        int idealRate = qMax<int>(1, 256. / tileSizeOnScreen);
 #else
         int idealRate = 16;
 #endif
@@ -998,10 +1002,34 @@ protected:
                 auto offset = m_centerOffset;
                 const double diffX = (t.first.x / totalTiles) + offset.x();
 
+                bool replicate = true;
                 if (diffX > .5)
                     offset.setX(offset.x() - 1.);
                 else if (diffX < -.5)
                     offset.setX(offset.x() + 1.);
+                else
+                    replicate = false;
+
+                // TODO: fix this
+//                if (replicate) {
+//                    QDoubleMatrix4x4 translationMatrixReplica;
+//                    translationMatrixReplica.translate(m_centerOffset);
+//                    transform = m_arcballTransform0 * translationMatrixReplica;
+
+//                    t.second->draw(
+//                           transform,
+//                           *m_tiles.begin()->second,
+//                           m_fbo->size(),
+//                           m_elevationScale,
+//                           m_brightness,
+//                           m_tessellationDirection,
+//                           m_lightDirection,
+//                           fast,
+//                           m_joinTiles,
+//                           m_autoRefinement,
+//                           m_downsamplingRate,
+//                           m_geoReferenced);
+//                }
 
                 QDoubleMatrix4x4 translationMatrix;
                 translationMatrix.translate(offset);

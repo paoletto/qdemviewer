@@ -803,7 +803,7 @@ QC2.ApplicationWindow {
                 QC2.Slider {
                     id: elevationSlider
                     from: 0.1
-                    to: 10
+                    to: 20
                     value: 700
                     stepSize: 0.05
                     anchors {

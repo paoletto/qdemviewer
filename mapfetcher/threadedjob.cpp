@@ -707,10 +707,11 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
             t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
                                        QOpenGLTexture::Linear);
             t->setWrapMode(QOpenGLTexture::ClampToEdge);
-            t->setAutoMipMapGenerationEnabled(true);
+            // generate the mips here only one at a time,
+            // don't make the driver produce all of them when initializing the array with white
+            t->setAutoMipMapGenerationEnabled(false);
             t->setFormat(QOpenGLTexture::RGBA8_UNorm);
             t->setSize(m_image->size().width(), m_image->size().height());
-            t->allocateStorage();
 
             if (m_white256.size() == 1) {
                 QImage i256 = std::move(m_white256[0]);
@@ -718,10 +719,13 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
                 ASTCEncoder::generateMips(i256, m_white256);
             }
 
-            for (int i = 0; i < layers; ++i) {
+            t->setMipLevels(m_white256.size());
+            t->allocateStorage();
+
+            for (int l = 0; l < layers; ++l) {
                 for (int m = 0; m < m_white256.size(); ++m) {
                     t->setData(m,
-                               i,
+                               l,
                                QOpenGLTexture::RGBA,
                                QOpenGLTexture::UInt8,
                                m_white256[m].constBits(),
@@ -804,7 +808,7 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
         }
 
         return sz; // astc
-    }
+    } // NetworkConfiguration::astcEnabled
 }
 
 QSize ASTCCompressedTextureData::size() const
