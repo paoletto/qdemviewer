@@ -39,20 +39,13 @@ const vec4 vertices[12] = {
 uniform highp mat4 matData;
 uniform highp mat4 matrix;
 uniform highp float scale;
-uniform highp vec3 cameraCenter;
-uniform highp vec3 cameraCenter_lowpart;
 
 flat out int lineID;
 
 void main()
 {
-//    gl_Position = projection * view * model * vert;
-
-//    vec4 vtx = (matData * vertices[gl_VertexID] * vec4(vec3(scale), 1)) - vec4(center, 0.0);
-//    vtx = vtx - vec4(center_lowpart, 0.0);
     lineID = gl_VertexID / 2;
     gl_Position = matrix * matData * vertices[gl_VertexID] ;
-//    gl_Position = matrix * vtx ;
 }
 )";
 static constexpr char fragmentShaderOrigin[] = R"(

@@ -93,6 +93,13 @@ QMatrix4x4 toMatrix4x4(const QDoubleMatrix4x4 &m)
                       m(2,0), m(2,1), m(2,2), m(2,3),
                       m(3,0), m(3,1), m(3,2), m(3,3));
 }
+QDoubleMatrix4x4 fromMatrix4x4(const QMatrix4x4 &m)
+{
+    return QDoubleMatrix4x4(m(0,0), m(0,1), m(0,2), m(0,3),
+                            m(1,0), m(1,1), m(1,2), m(1,3),
+                            m(2,0), m(2,1), m(2,2), m(2,3),
+                            m(3,0), m(3,1), m(3,2), m(3,3));
+}
 QOpenGLVertexArrayObject datalessVao;
 TileKey superTile(const TileKey &k, quint8 z2) {
     Q_ASSERT(z2 <= k.z);
@@ -141,8 +148,8 @@ float screenSpaceTileSize(const QMatrix4x4 &m) {
 }
 struct Origin {
     static void draw(const QMatrix4x4 &transformation,
-                     const QDoubleVector3D &cameraCenter,
-                     const qreal scale) {
+                     const QDoubleVector3D &,
+                     const qreal ) {
         if (!m_shader) {
             m_shader = new QOpenGLShaderProgram;
             // Create shaders
@@ -181,19 +188,10 @@ struct Origin {
             ,QVector4D( 0, 0, 1,1)
         };
 
-        QMatrix4x4 m = transformation * matData;
-
-        QVector3D vecCenter, vecCenter_lowpart;
-        for (int i = 0; i < 3; i++)
-            QLocationUtils::split_double(cameraCenter.get(i),
-                                         &vecCenter[i],
-                                         &vecCenter_lowpart[i]);
+        //QMatrix4x4 m = transformation * matData;
 
         m_shader->setUniformValue("matrix", transformation);
         m_shader->setUniformValue("scale", 1);
-
-        m_shader->setUniformValue("cameraCenter", vecCenter);
-        m_shader->setUniformValue("cameraCenter_lowpart", vecCenter_lowpart);
 
         f->glLineWidth(10);
         f->glDrawArrays(GL_LINES, 0, 12);
@@ -325,7 +323,7 @@ class ArcBall : public QObject {
     Q_PROPERTY(QVariant modelTransformation READ modelTransformation WRITE setModelTransformation)
 public:
     ArcBall(QObject *parent = nullptr) : QObject(parent) {
-        m_view.lookAt(QVector3D(0,0,10), QVector3D(0,0,0), QVector3D(0,1,0));
+        m_view.lookAt(QDoubleVector3D(0,0,10), QDoubleVector3D(0,0,0), QDoubleVector3D(0,1,0));
         m_projection.ortho(-1,1,-1,1,-2000,2000);
     }
 
@@ -386,7 +384,7 @@ public:
         if (m_winSize.isEmpty() || m_panActive)
             return;
         m_active = true;
-        m_pressedPoint = QVector3D(2.0f * m.x() / m_winSize.width() - 1.0,
+        m_pressedPoint = QDoubleVector3D(2.0f * m.x() / m_winSize.width() - 1.0,
                                    1.0 - 2.0f * m.y() / m_winSize.height(), 0);
     }
 
@@ -394,12 +392,12 @@ public:
         if (m_winSize.isEmpty() || m_active)
             return;
         m_panActive = true;
-        m_pressedPoint = QVector3D(2.0f * m.x() / m_winSize.width() - 1.0,
+        m_pressedPoint = QDoubleVector3D(2.0f * m.x() / m_winSize.width() - 1.0,
                                    1.0 - 2.0f * m.y() / m_winSize.height(), 0);
     }
 
     Q_INVOKABLE void zoom(float delta) {
-        QMatrix4x4 matScale;
+        QDoubleMatrix4x4 matScale;
         float scale = 1.0 + sgn(delta) * 0.1;
         matScale.scale(scale);
 
@@ -412,9 +410,9 @@ public:
             return;
         //https://stackoverflow.com/questions/54498361/opengl-arcball-for-rotating-mesh
         m_current.setToIdentity();
-        QVector3D p(2.0f * m.x() / m_winSize.width() - 1.0,
+        QDoubleVector3D p(2.0f * m.x() / m_winSize.width() - 1.0,
                     1.0 - 2.0f * m.y() / m_winSize.height(), 0);
-        QVector3D direction = p - m_pressedPoint;
+        QDoubleVector3D direction = p - m_pressedPoint;
         if (m_active) {
             QVector3D rotationAxis = QVector3D(-direction.y(), direction.x(), 0.0).normalized();
             float angle = (float)qRadiansToDegrees(direction.length() * M_PI);
@@ -432,16 +430,16 @@ public:
         m_active = m_panActive = false;
     }
 
-    QMatrix4x4 transformation() const {
+    QDoubleMatrix4x4 transformation() const {
         return m_projection * m_view * (m_current * m_transformation) ;
     }
 
     QVariant modelTransformation() const {
-        return QVariant::fromValue(m_transformation);
+        return QVariant::fromValue(toMatrix4x4(m_transformation));
     }
 
     void setModelTransformation(const QVariant &modelTrafo) {
-        m_transformation = qvariant_cast<QMatrix4x4>(modelTrafo);
+        m_transformation = fromMatrix4x4(qvariant_cast<QMatrix4x4>(modelTrafo));
     }
 
     Q_INVOKABLE QPointF normalizeIfNeeded(const QPointF p) {
@@ -471,14 +469,14 @@ private:
     }
 
     QSize m_winSize;
-    QVector3D m_pressedPoint;
+    QDoubleVector3D m_pressedPoint;
     bool m_active{false};
     bool m_panActive{false};
 
-    QMatrix4x4 m_projection;
-    QMatrix4x4 m_view;
-    QMatrix4x4 m_transformation;
-    QMatrix4x4 m_current;
+    QDoubleMatrix4x4 m_projection;
+    QDoubleMatrix4x4 m_view;
+    QDoubleMatrix4x4 m_transformation;
+    QDoubleMatrix4x4 m_current;
 };
 
 struct Tile
@@ -594,7 +592,6 @@ struct Tile
     }
 
     void draw(const QDoubleMatrix4x4 &transformation,
-              const QDoubleVector3D &centerOffset,
               const Tile& origin,
               const QSize viewportSize,
               float elevationScale,
@@ -668,10 +665,10 @@ struct Tile
 
         double totalTiles = 1 << m_key.z;
         QDoubleMatrix4x4 tileMatrix;
-//        if (geoReferenced)
-            tileMatrix = tileTransformationMercator(centerOffset);
-//        else
-//            tileMatrix = tileTransformation(origin);
+        if (geoReferenced)
+            tileMatrix = tileTransformationMercator();
+        else
+            tileMatrix = tileTransformation(origin);
 
         const QMatrix4x4 m = toMatrix4x4(transformation * tileMatrix);
 #if 1
@@ -727,16 +724,7 @@ struct Tile
         elevationScale *= reciprocalCircumference;
         elevationScale *= totalTiles;
 
-//        if (geoReferenced) {
-
-
-//        } else {
-
-//        }
-
         shader->setUniformValue("elevationScale", elevationScale);
-
-
         shader->setUniformValue("matrix", m);
         shader->setUniformValue("color", QColor(255,255,255,255));
         shader->setUniformValue("samplingStride", stride);
@@ -766,33 +754,25 @@ struct Tile
                 * ((m_resolution.height() - toSubtract) / stride + toAdd - 1) * 6;
     }
 
-    QDoubleMatrix4x4 tileTransformationMercator(const QDoubleVector3D &centerOffset = {0,0,0}) const {
+    QDoubleMatrix4x4 tileTransformationMercator() const {
         double totalTiles = 1 << m_key.z;
         QDoubleMatrix4x4 res;
         res /= 1.; // to turn flagBits into General
         const double factor = 1/totalTiles;
         res.scale(factor, factor, factor);
-//        double (*m)[4][4] = (double (*)[4][4]) res.data();
         double (&m)[4][4] = *reinterpret_cast<double (*)[4][4]>(res.data());
 
         m[3][0] = m_key.x / totalTiles;
         m[3][1] = 1. - (m_key.y + 1.) / totalTiles;
         m[3][2] = 0;
         m[3][3] = 1;
-//        res.setColumn(3, QVector4D(m_key.x / totalTiles,
-//                                   1 - (m_key.y + 1) / totalTiles,
-//                                   0,
-//                                   1));
-        QDoubleMatrix4x4 translationMatrix;
-        translationMatrix.translate(centerOffset);
-        return translationMatrix * res;
-//        return toMatrix4x4(translationMatrix * res);
+        return res;
     }
 
-    QMatrix4x4 tileTransformation(const Tile& origin) const {
+    QDoubleMatrix4x4 tileTransformation(const Tile& origin) const {
         qint64 xdiff = m_key.x - origin.m_key.x;
         qint64 ydiff = m_key.y - origin.m_key.y;
-        QMatrix4x4 res;
+        QDoubleMatrix4x4 res;
         res.translate(xdiff, -ydiff -1); // We put 0,0 below the x-axis
 
         if (m_resolution.width() != m_resolution.height()) {
@@ -965,7 +945,6 @@ protected:
     QOpenGLFramebufferObject *createFbo(const QSize &size) {
         QOpenGLFramebufferObjectFormat format;
         format.setAttachment(QOpenGLFramebufferObject::CombinedDepthStencil);
-//        format.setSamples(4);
         m_fbo =  new QOpenGLFramebufferObject(size, format);
         return m_fbo;
     }
@@ -1006,12 +985,30 @@ protected:
         const bool fast = true; //(m_interactive && m_fastInteraction) || (m_fastInteraction && !m_autoRefinement);
 
         if (!m_geoReferenced)
-            Origin::draw(m_arcballTransform, m_cameraCenter, 1);
+            Origin::draw(toMatrix4x4(m_arcballTransform), m_centerOffset, 1);
+
+        QDoubleMatrix4x4 transform;
+        if (!m_geoReferenced) {
+            transform = m_arcballTransform;
+        }
 
         for (auto &t: m_tiles) {
-            t.second->draw(//m_arcballTransform,
-                   m_arcballTransform0,
-                   m_cameraCenter,
+            if (m_geoReferenced) {
+                const double totalTiles = 1 << t.first.z;
+                auto offset = m_centerOffset;
+                const double diffX = (t.first.x / totalTiles) + offset.x();
+
+                if (diffX > .5)
+                    offset.setX(offset.x() - 1.);
+                else if (diffX < -.5)
+                    offset.setX(offset.x() + 1.);
+
+                QDoubleMatrix4x4 translationMatrix;
+                translationMatrix.translate(offset);
+                transform = m_arcballTransform0 * translationMatrix;
+            }
+            t.second->draw(
+                   transform,
                    *m_tiles.begin()->second,
                    m_fbo->size(),
                    m_elevationScale,
@@ -1041,8 +1038,8 @@ protected:
     QPointer<QQuickWindow> m_window;
     QOpenGLFramebufferObject *m_fbo = nullptr;
     int m_glMaxTexSize = std::numeric_limits<int>::max();
-    QMatrix4x4 m_mvp;
-    QMatrix4x4 m_arcballTransform;
+
+    QDoubleMatrix4x4 m_arcballTransform;
     QDoubleMatrix4x4 m_arcballTransform0;
     float m_elevationScale{500};
     float m_brightness{1.};
@@ -1054,7 +1051,7 @@ protected:
     bool m_autoRefinement{false};
     int m_downsamplingRate{8};
     bool m_geoReferenced{false};
-    QDoubleVector3D m_cameraCenter;
+    QDoubleVector3D m_centerOffset;
     std::map<TileKey, std::shared_ptr<Tile>> m_tiles {};
     // TODO use a state struct
 };
@@ -1080,7 +1077,6 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
     Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
-    Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
     Q_PROPERTY(bool geoReferenced READ geoReferenced WRITE setGeoReferenced NOTIFY geoReferencedChanged)
 
 public:
@@ -1443,102 +1439,6 @@ private:
 
 class QGeoProjectionWebMercatorPublic: public QGeoProjectionWebMercator {
 public:
-    static QPointF centerOffset(const QSizeF &screenSize, const QRectF &visibleArea)
-    {
-        QRectF va = visibleArea;
-        if (va.isNull())
-            va = QRectF(0, 0, screenSize.width(), screenSize.height());
-
-        QRectF screen = QRectF(QPointF(0,0),screenSize);
-        QPointF vaCenter = va.center();
-
-        QPointF screenCenter = screen.center();
-        QPointF diff = screenCenter - vaCenter;
-
-        return diff;
-    }
-
-    static QPointF marginsOffset(const QSizeF &screenSize, const QRectF &visibleArea)
-    {
-        QPointF diff = centerOffset(screenSize, visibleArea);
-        qreal xdiffpct = diff.x() / qMax<double>(screenSize.width() - 1, 1);
-        qreal ydiffpct = diff.y() / qMax<double>(screenSize.height() - 1, 1);
-
-        return QPointF(-xdiffpct, -ydiffpct);
-    }
-    QDoubleMatrix4x4 projectionTransformationWebMercator() const {
-        QDoubleMatrix4x4 matrix;
-
-        double f = 1;
-        // Also in mercator space
-        constexpr const size_t defaultTileSize{256};
-        double zlAtMinimum = std::log2(std::max(m_viewportWidth, m_viewportHeight) / double(defaultTileSize));
-        double z_mercator = std::pow(2.0, m_cameraData.zoomLevel() - zlAtMinimum);
-
-        double altitude_mercator = f / (2.0 * z_mercator);
-        QDoubleVector3D centerMercator = m_centerMercator;
-        centerMercator.setY(1.0 - centerMercator.y());
-
-        QDoubleVector3D eyeMercator = centerMercator;
-        eyeMercator.setZ(altitude_mercator  / m_aperture);
-
-        QDoubleVector3D eyeMercator0 = QDoubleVector3D(0,0,0);
-        eyeMercator0.setZ(altitude_mercator  / m_aperture);
-
-        QDoubleVector3D viewMercator = eyeMercator - centerMercator;
-        QDoubleVector3D sideMercator = QDoubleVector3D::normal(viewMercator, QDoubleVector3D(0.0, 1.0, 0.0));
-        QDoubleVector3D upMercator = QDoubleVector3D::normal(sideMercator, viewMercator);
-
-        if (m_cameraData.bearing() > 0.0) {
-            // In mercator space too
-            QDoubleMatrix4x4 mBearingMercator;
-            mBearingMercator.rotate(-m_cameraData.bearing(), viewMercator);
-            upMercator = mBearingMercator * upMercator;
-        }
-
-        sideMercator = QDoubleVector3D::normal(upMercator, viewMercator);
-
-        if (m_cameraData.tilt() > 0.0) { // tilt has been already thresholded by QGeoCameraData::setTilt
-            // In mercator space too
-            QDoubleMatrix4x4 mTiltMercator;
-            mTiltMercator.rotate(m_cameraData.tilt(), sideMercator);
-            eyeMercator = mTiltMercator * viewMercator + centerMercator;
-            eyeMercator0 = mTiltMercator * viewMercator;
-        }
-
-        viewMercator = eyeMercator - centerMercator;
-        upMercator = QDoubleVector3D::normal(viewMercator, sideMercator);
-        double nearPlaneMercator = 0.000002; // this value works until ZL 18. Above that, a better progressive formula is needed, or
-                                                     // else, this clips too much.
-
-
-        matrix.lookAt(eyeMercator,
-                      centerMercator,
-                      upMercator);
-
-        QDoubleMatrix4x4 projectionMatrix;
-        projectionMatrix.perspective(m_cameraData.fieldOfView(),
-                                     1.0 * m_viewportWidth / m_viewportHeight,
-                                     nearPlaneMercator,
-                                     10); // TODO fixme based on viewport
-
-        QPointF offsetPct = marginsOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
-        QDoubleMatrix4x4 matScreenTransformation;
-//        Not WOrking?
-//        matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-//        matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
-//        matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
-
-//        matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-//        matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
-//        matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
-
-        matrix = matScreenTransformation
-                * projectionMatrix
-                * matrix;
-
-        return matrix;
-    }
     QDoubleVector3D centerOffset() const {
         QDoubleVector3D c = m_centerMercator;
         c.setY(1.0 - c.y());
@@ -1547,14 +1447,15 @@ public:
     QDoubleMatrix4x4 projectionTransformationWebMercatorCentered() const {
         QDoubleMatrix4x4 matrix;
 
-        double f = 1; // Mercator space size
+        constexpr const double f = 1; // Mercator space size
+        constexpr const double nearPlaneMercator = 0.000002; // this value works until ZL 18. Above that, a better progressive formula is needed, or
+                                                             // else, this clips too much.
         constexpr const size_t defaultTileSize{256};
-//        double zlAtMinimum = std::log2(std::max(m_viewportWidth, m_viewportHeight) / double(defaultTileSize));
-        double zlAtMinimum = std::log2(m_viewportHeight / double(defaultTileSize));
-        double z_mercator = std::pow(2.0, m_cameraData.zoomLevel() - zlAtMinimum);
+        const double zlAtMinimum = std::log2(m_viewportHeight / double(defaultTileSize));
+        const double z_mercator = std::pow(2.0, m_cameraData.zoomLevel() - zlAtMinimum);
 
-        double altitude_mercator = f / (2.0 * z_mercator);
-        QDoubleVector3D centerMercator(0,0,0);
+        const double altitude_mercator = f / (2.0 * z_mercator);
+        const QDoubleVector3D centerMercator(0,0,0);
 
         QDoubleVector3D eyeMercator = centerMercator;
         eyeMercator.setZ(altitude_mercator  / m_aperture);
@@ -1581,63 +1482,28 @@ public:
 
         viewMercator = eyeMercator - centerMercator;
         upMercator = QDoubleVector3D::normal(viewMercator, sideMercator);
-        double nearPlaneMercator = 0.000002; // this value works until ZL 18. Above that, a better progressive formula is needed, or
-                                                     // else, this clips too much.
-
-
         matrix.lookAt(eyeMercator,
                       centerMercator,
                       upMercator);
 
         QDoubleMatrix4x4 projectionMatrix;
-//        projectionMatrix.perspective(m_cameraData.fieldOfView(), 1, nearPlaneMercator, 10); // TODO fixme based on viewport
         projectionMatrix.perspective(m_cameraData.fieldOfView(),
                                      1.0 * m_viewportWidth / m_viewportHeight,
                                      nearPlaneMercator,
                                      10);
 
-//        double aspectRatio = 1.0 * m_viewportWidth / m_viewportHeight;
-//        double halfWidth = m_aperture * aspectRatio;
-//        double halfHeight = m_aperture;
-//        projectionMatrix.frustum(-halfWidth,
-//                                 halfWidth,
-//                                 -halfHeight,
-//                                 halfHeight,
-//                                 nearPlaneMercator,
-//                                 10);
-
-        QPointF offsetPct = marginsOffset(QSizeF(m_viewportWidth, m_viewportHeight), m_visibleArea);
-        QDoubleMatrix4x4 matScreenTransformation;
-//        Not WOrking?
-//        matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-//        matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
-//        matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
-
-//        matScreenTransformation.scale(0.5 * m_viewportWidth, 0.5 * m_viewportHeight, 1.0);
-//        matScreenTransformation(0,3) = (0.5 + offsetPct.x()) * m_viewportWidth;
-//        matScreenTransformation(1,3) = (0.5 + offsetPct.y()) * m_viewportHeight;
-
-        matrix = matScreenTransformation
-                * projectionMatrix
+        matrix =  projectionMatrix
                 * matrix;
 
         return matrix;
     }
 };
 
-
 class QGeoProjectionWebMercatorCustom: public QGeoProjectionWebMercator
 {
 public:
     QGeoProjectionWebMercatorCustom(const QGeoProjectionWebMercator &wm)
-        : m_wm(static_cast<const QGeoProjectionWebMercatorPublic&>(wm))
-    {
-
-    }
-
-    QMatrix4x4 projectionTransformationWebMercator() const {
-        return toMatrix4x4(m_wm.projectionTransformationWebMercator());
-    }
+        : m_wm(static_cast<const QGeoProjectionWebMercatorPublic&>(wm)) {}
 
     QDoubleMatrix4x4 projectionTransformationWebMercatorCentered() const {
         return m_wm.projectionTransformationWebMercatorCentered();
@@ -1661,15 +1527,9 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
     if (viewer && viewer->m_geoReferenced && viewer->m_map) {
         const QGeoProjection &p = viewer->m_map->map()->geoProjection();
         QGeoProjectionWebMercatorCustom pc(static_cast<const QGeoProjectionWebMercator&>(p));
-//        m_arcballTransform = p.projectionTransformation();
-//        m_arcballTransform = p.qsgTransform();
-        m_arcballTransform = pc.projectionTransformationWebMercator();
         m_arcballTransform0 = pc.projectionTransformationWebMercatorCentered();
-//        m_arcballTransform0 = p.projectionTransformation_centered();
-        //m_cameraCenter = p.centerMercator();
-        m_cameraCenter = pc.centerOffset();
+        m_centerOffset = pc.centerOffset();
     }
-
 
     if (viewer) {
             bool reset = viewer->m_reset;
