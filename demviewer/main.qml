@@ -354,7 +354,13 @@ QC2.ApplicationWindow {
             }
             QC2.Action {
                 text: qsTr("Reset Scene")
-                onTriggered: arcball.reset()
+                onTriggered: {
+                    arcball.reset()
+                    baseMap2.bearing = 0
+                    baseMap2.tilt = 0
+                    //baseMap2.zoomLevel = 10
+                    //baseMap2.center = QtPositioning.coordinate(35,8)
+                }
             }
             ColumnLayout {
                 Text {
@@ -747,7 +753,7 @@ QC2.ApplicationWindow {
                     visible: settings.geoReferencing
                     plugin: basemap.plugin
                     anchors.fill: parent
-                    opacity: 0.79
+                    opacity: 0.85
                     copyrightsVisible: false
                     gesture.enabled: true
                     gesture.acceptedGestures: MapGestureArea.PanGesture | MapGestureArea.FlickGesture | MapGestureArea.PinchGesture | MapGestureArea.RotationGesture | MapGestureArea.TiltGesture
