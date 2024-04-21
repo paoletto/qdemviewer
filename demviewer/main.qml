@@ -97,6 +97,7 @@ QC2.ApplicationWindow {
         property alias modelBearing: baseMap2.bearing
         property alias modelTilt: baseMap2.tilt
         property alias geoReferencing: geoReferencedMenuItem.checked
+        property alias demOpacity: alphaSlider.value
         property int selectedProvider: 0
         property var modelTransformation
         property var splitViewState
@@ -349,6 +350,31 @@ QC2.ApplicationWindow {
                         parent: brightnessSlider.handle
                         visible: brightnessSlider.pressed
                         text: brightnessSlider.value.toFixed(2)
+                    }
+                }
+            }
+            RowLayout {
+                spacing: 4
+                width: parent.width
+                Text {
+                    text: "α"
+                    color: "white"
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.leftMargin: 2
+                }
+
+                QC2.Slider {
+                    id: alphaSlider
+                    from: 0.0
+                    to: 1.0
+                    value: 1
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+
+                    QC2.ToolTip {
+                        parent: alphaSlider.handle
+                        visible: alphaSlider.pressed
+                        text: alphaSlider.value.toFixed(2)
                     }
                 }
             }
@@ -761,6 +787,7 @@ QC2.ApplicationWindow {
 
                 TerrainViewer {
                     id: viewer
+                    opacity: settings.demOpacity
                     anchors.fill: parent
                     interactor: arcball
                     demFetcher: demfetcher

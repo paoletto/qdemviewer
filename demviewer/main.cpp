@@ -119,8 +119,8 @@ int keyToLayer(const TileKey &superk, const TileKey &subk) {
     const quint64 yorig = superk.y * subdivisionLength;
     return (subk.y - yorig) * subdivisionLength + (subk.x - xorig);
 }
-std::array<QVector3D, 4> quad{{{0.,0.,0.},{1.,0.,0.},{1.,1.,0.},{0.,1.,0.}}};
-float screenSpaceTileSize(const QMatrix4x4 &m) {
+std::array<QDoubleVector3D, 4> quad{{{0.,0.,0.},{1.,0.,0.},{1.,1.,0.},{0.,1.,0.}}};
+float screenSpaceTileSize(const QDoubleMatrix4x4 &m) {
     const auto p0 = m * quad[0];
     const auto p1 = m * quad[1];
     const auto p2 = m * quad[2];
@@ -129,11 +129,13 @@ float screenSpaceTileSize(const QMatrix4x4 &m) {
     const auto d1 = p3.toVector2D() - p1.toVector2D();
     const auto tileSizeNormalized = qMax(d0.length(), d1.length());
 
-    const float radius = 1. + tileSizeNormalized;
-    if (   p0.x() < -radius || p0.x() > radius || p0.y() < -radius || p0.y() > radius
-        || p1.x() < -radius || p1.x() > radius || p1.y() < -radius || p1.y() > radius
-        || p2.x() < -radius || p2.x() > radius || p2.y() < -radius || p2.y() > radius
-        || p3.x() < -radius || p3.x() > radius || p3.y() < -radius || p3.y() > radius) {
+    const double radius = 1. + tileSizeNormalized;
+    // TODO: enable only on high pitch/high zoom!!!
+    const double radiusBottom = 1. + tileSizeNormalized * 3;
+    if (   p0.x() < -radius || p0.x() > radius || p0.y() < -radiusBottom || p0.y() > radius
+        || p1.x() < -radius || p1.x() > radius || p1.y() < -radiusBottom || p1.y() > radius
+        || p2.x() < -radius || p2.x() > radius || p2.y() < -radiusBottom || p2.y() > radius
+        || p3.x() < -radius || p3.x() > radius || p3.y() < -radiusBottom || p3.y() > radius) {
         return -1; // TODO: broken! needs to keep elevation * scale into account!!!
     }
     return tileSizeNormalized;
@@ -172,24 +174,6 @@ struct Origin {
         matData.translate({.5,.5, 0});
 #endif
         m_shader->setUniformValue("matData", matData);
-
-        const QVector4D vertices[12] = {
-             QVector4D(-1, 0, 0,1)
-            ,QVector4D(0,0,0,1)
-            ,QVector4D(0,0,0,1)
-            ,QVector4D( 1, 0, 0,1)
-            ,QVector4D( 0,-1, 0,1)
-            ,QVector4D(0,0,0,1)
-            ,QVector4D(0,0,0,1)
-            ,QVector4D( 0, 1, 0,1)
-            ,QVector4D( 0, 0,-1,1)
-            ,QVector4D(0,0,0,1)
-            ,QVector4D(0,0,0,1)
-            ,QVector4D( 0, 0, 1,1)
-        };
-
-        //QMatrix4x4 m = transformation * matData;
-
         m_shader->setUniformValue("matrix", transformation);
         m_shader->setUniformValue("scale", 1);
 
@@ -673,9 +657,10 @@ struct Tile
         else
             tileMatrix = tileTransformation(origin);
 
-        const QMatrix4x4 m = toMatrix4x4(transformation * tileMatrix);
+        const QDoubleMatrix4x4 dm = transformation * tileMatrix;
+
 #if 1
-        const float tileSize = screenSpaceTileSize(m);
+        const float tileSize = screenSpaceTileSize(dm);
 
         if (tileSize < 0)
             return; // TODO: improve
@@ -687,6 +672,7 @@ struct Tile
 #else
         int idealRate = 16;
 #endif
+        const QMatrix4x4 m = toMatrix4x4(dm);
 
         auto rasterTxt = mapTexture();
         // TODO: streamline, fix, deduplicate
