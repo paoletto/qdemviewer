@@ -205,6 +205,7 @@ void ThreadedJobQueue::next(QThread *t) {
 ThreadedJob::ThreadedJob()
 {
     connect(this, &ThreadedJob::finished, this, &QObject::deleteLater);
+    connect(this, &ThreadedJob::error, this, &QObject::deleteLater);
     connect(this, &QObject::destroyed, this, &ThreadedJob::onDestroyed);
 }
 
@@ -249,7 +250,6 @@ TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
     connect(this, &TileReplyHandler::insertCompressedTileData, this, &ThreadedJob::finished);
     connect(this, &TileReplyHandler::insertCoverage, this, &ThreadedJob::finished);
     connect(this, &TileReplyHandler::expectingMoreSubtiles, this, &ThreadedJob::finished);
-    connect(this, &ThreadedJob::error, this, &ThreadedJob::finished);
 }
 
 void TileReplyHandler::process()
@@ -536,7 +536,6 @@ CachedCompoundTileHandler::CachedCompoundTileHandler(quint64 id, TileKey k, quin
     connect(this, &CachedCompoundTileHandler::tileReady,
             &mapFetcher, &MapFetcherWorker::tileReady, Qt::QueuedConnection);
     connect(this, &CachedCompoundTileHandler::tileReady, this, &ThreadedJob::finished);
-    connect(this, &ThreadedJob::error, this, &ThreadedJob::finished);
 }
 
 void CachedCompoundTileHandler::process() {
