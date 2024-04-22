@@ -204,6 +204,13 @@ public:
         m_logPath = path;
     }
 
+    Q_INVOKABLE void updateASTCSupport() {
+        QQuickWindow *w = qobject_cast<QQuickWindow *>(sender());
+        if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
+            qmlContext(w)->engine()->rootContext()->setContextProperty("astcSupported", true);
+        }
+    }
+
     Q_INVOKABLE void logRequest(MapFetcher *f,
                                 const QList<QGeoCoordinate> &coords,
                                 int zoom,
@@ -1091,7 +1098,7 @@ public:
         m_updateTimer.setInterval(1800);
         connect(&m_updateTimer, &QTimer::timeout, this, &TerrainViewer::fullUpdate);
         m_updateTimer.setSingleShot(true);
-        m_provisioningUpdateTimer.setInterval(500);
+        m_provisioningUpdateTimer.setInterval(800);
         connect(&m_provisioningUpdateTimer, &QTimer::timeout, this, &TerrainViewer::interactiveUpdate);
         m_provisioningUpdateTimer.setSingleShot(true);
     }
@@ -1588,6 +1595,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
 
 int main(int argc, char *argv[])
 {    
+    qInfo() << "demviewer starting ...";
 #if defined(Q_OS_LINUX)
     qputenv("QT_QPA_PLATFORMTHEME", QByteArrayLiteral("gtk3"));
 #endif
@@ -1603,6 +1611,7 @@ int main(int argc, char *argv[])
     QCoreApplication::setOrganizationDomain(QStringLiteral("test"));
     QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
 
+    // Test Graphics HW support
     QSurfaceFormat fmt;
     fmt.setDepthBufferSize(24);
     fmt.setVersion(4, 5);
@@ -1611,6 +1620,26 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(fmt);
 
     QGuiApplication app(argc, argv);
+
+    {
+        QOpenGLContext ctx;
+        QSurfaceFormat fmt;
+        fmt.setVersion(4, 5);
+        fmt.setRenderableType(QSurfaceFormat::OpenGL);
+        fmt.setProfile(QSurfaceFormat::CoreProfile);
+        ctx.setFormat(fmt);
+        ctx.create();
+        if (!ctx.isValid()) {
+            qFatal("Unable to create a suitable OpenGL profile");
+        }
+        int ctxMajor = ctx.format().majorVersion();
+        int ctxMinor = ctx.format().minorVersion();
+
+        if (ctxMajor < 4 || ctxMinor < 5) {
+            const QString msg = "The platform only provided an OpenGL profile v" + QString::number(ctxMajor) + "." + QString::number(ctxMinor);
+            qFatal(msg.toStdString().c_str());
+        }
+    }
     QQmlApplicationEngine engine;
 
     qmlRegisterType<TerrainViewer>("DemViewer", 1, 0, "TerrainViewer");
@@ -1634,12 +1663,18 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("demfetcher", demFetcher);
     engine.rootContext()->setContextProperty("arcball", arcball);
     engine.rootContext()->setContextProperty("mapFetcher", rasterFetcher);
+    engine.rootContext()->setContextProperty("astcSupported", false);
 
     const QUrl url(QStringLiteral("qrc:/main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,
-                     &app, [url](QObject *obj, const QUrl &objUrl) {
+                     &app, [url, utilities](QObject *obj, const QUrl &objUrl) {
         if (!obj && url == objUrl)
             QCoreApplication::exit(-1);
+
+        QQuickWindow *w = qobject_cast<QQuickWindow *>(obj);
+        QObject::connect(w, &QQuickWindow::sceneGraphInitialized,
+                         utilities, &Utilities::updateASTCSupport);
+
     }, Qt::QueuedConnection);
 
     qInfo() << "Network cache dir: " << MapFetcher::networkCachePath();

@@ -35,6 +35,13 @@ QC2.ApplicationWindow {
     height: 700
     visible: true
     title: qsTr("DEM Viewer")
+    objectName: "Application Window"
+
+    Component.onCompleted: {
+        if (root.urlTemplates.length == 0) {
+            root.pushTemplate("osm", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
+        }
+    }
 
     onWidthChanged: arcball.setSize(Qt.size(width, height))
     onHeightChanged: arcball.setSize(Qt.size(width, height))
@@ -282,6 +289,7 @@ QC2.ApplicationWindow {
                 text: qsTr("ASTC compression")
                 checkable: true
                 checked: false
+                enabled: astcEnabled
 
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
@@ -479,12 +487,6 @@ QC2.ApplicationWindow {
                 checkable: false
                 onClicked: fileDialogReplay.open()
             }
-        }
-    }
-
-    Component.onCompleted: {
-        if (root.urlTemplates.length == 0) {
-            root.pushTemplate("osm", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
         }
     }
 
@@ -799,7 +801,7 @@ QC2.ApplicationWindow {
                     lightDirection: shadingSphere.pos
                     offline: offline.checked
                     logRequests: logNetworkRequests.checked
-                    astcEnabled: astc.checked
+                    astcEnabled: settings.astc && astcSupported
                     fastInteraction: fastInteractionMenuItem.checked
                     autoRefinement: autoStrideMenuItem.checked //autoRefinementMenuItem.checked
                     downsamplingRate: decimationSlider.rate
