@@ -40,7 +40,11 @@ public:
 
     static QTextureFileData fromCached(QByteArray &cached);
 
-    void generateMips(const QImage &ima, std::vector<QTextureFileData> &out, QByteArray md5);
+    void generateMips(const QImage &ima,
+                      quint64 x,
+                      quint64 y,
+                      quint64 z,
+                      std::vector<QTextureFileData> &out, QByteArray md5);
     static void generateMips(QImage ima, std::vector<QImage> &out);
 
     bool isCached(const QByteArray &md5);

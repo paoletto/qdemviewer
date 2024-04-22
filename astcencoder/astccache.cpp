@@ -22,6 +22,7 @@
 
 #include <QString>
 #include <QFileInfo>
+#include <QDateTime>
 #include <QRandomGenerator>
 #include <QCryptographicHash>
 #include <QStandardPaths>
@@ -86,11 +87,27 @@ ASTCCache::ASTCCache(const QString &sqlitePath) : m_sqlitePath(sqlitePath) {
     )
     )";
 
+    static constexpr char schemaMetadataMapping[] = R"(
+    CREATE TABLE IF NOT EXISTS TileMetadata (
+          tileHash BLOB PRIMARY KEY
+        , x INTEGER NOT NULL
+        , y INTEGER NOT NULL
+        , z INTEGER NOT NULL
+        , ts DATETIME NOT NULL
+    )
+    )";
+
     m_queryCreation = QSqlQuery(m_diskCache);
     m_queryCreation.setForwardOnly(true);
     bool res =   m_queryCreation.exec(QLatin1String(schema));
     if (!res)
         qWarning() << "Failed to create Tile table"  << m_queryCreation.lastError() <<  __FILE__ << __LINE__;
+
+    m_queryCreationMeta = QSqlQuery(m_diskCache);
+    m_queryCreationMeta.setForwardOnly(true);
+    res =   m_queryCreationMeta.exec(QLatin1String(schemaMetadataMapping));
+    if (!res)
+        qWarning() << "Failed to create Tile table"  << m_queryCreationMeta.lastError() <<  __FILE__ << __LINE__;
 
     m_queryFetchData = QSqlQuery(m_diskCache);
     m_queryFetchData.setForwardOnly(true);
@@ -106,6 +123,14 @@ ASTCCache::ASTCCache(const QString &sqlitePath) : m_sqlitePath(sqlitePath) {
         "INSERT INTO Tile(tileHash, blockX, blockY, quality, width, height, tile) VALUES (:hash, :blockX, :blockY, :quality, :width, :height, :tile)"));
     if (!res)
         qWarning() << "Failed to prepare  m_queryInsertData"  << m_queryInsertData.lastError() <<  __FILE__ << __LINE__;
+
+    m_queryInsertMetadata = QSqlQuery(m_diskCache);
+    m_queryInsertMetadata.setForwardOnly(true);
+    res = m_queryInsertMetadata.prepare(QStringLiteral(
+        "INSERT INTO TileMetadata(tileHash, x, y, z, ts) VALUES (:hash, :x, :y, :z, :ts)"));
+    if (!res)
+        qWarning() << "Failed to prepare  m_queryInsertMetadata"  << m_queryInsertMetadata.lastError() <<  __FILE__ << __LINE__;
+
 
     m_queryHasData = QSqlQuery(m_diskCache);
     m_queryHasData.setForwardOnly(true);
@@ -124,9 +149,15 @@ bool ASTCCache::insert(const QByteArray &tileHash,
                        float quality,
                        int width,
                        int height,
+                       qint64 x,
+                       qint64 y,
+                       qint64 z,
                        const QByteArray &tile)
 {
-    ScopeExit releaser([this]() {m_queryInsertData.finish();});
+    ScopeExit releaser([this]() {
+        m_diskCache.commit();
+        m_queryInsertData.finish();
+    });
     m_queryInsertData.bindValue(0, tileHash);
     m_queryInsertData.bindValue(1, blockX);
     m_queryInsertData.bindValue(2, blockY);
@@ -139,7 +170,18 @@ bool ASTCCache::insert(const QByteArray &tileHash,
         qDebug() << m_queryInsertData.lastError() <<  __FILE__ << __LINE__ << "for "<< width << ","<<height;
         return false;
     }
-    m_diskCache.commit();
+
+    if (x >= 0 && y >= 0 && z >= 0) {
+        m_queryInsertMetadata.bindValue(0, tileHash);
+        m_queryInsertMetadata.bindValue(1, x);
+        m_queryInsertMetadata.bindValue(2, y);
+        m_queryInsertMetadata.bindValue(3, z);
+        m_queryInsertMetadata.bindValue(4, QDateTime::currentDateTimeUtc());
+        if (!m_queryInsertMetadata.exec()) {
+            qDebug() << m_queryInsertMetadata.lastError() <<  __FILE__ << __LINE__ << "for "<< width << ","<<height;
+        }
+        m_queryInsertMetadata.finish();
+    }
     return true;
 }
 

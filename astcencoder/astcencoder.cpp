@@ -276,7 +276,12 @@ void ASTCEncoder::generateMips(QImage ima, std::vector<QImage> &out)
     }
 }
 
-void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> &out, QByteArray md5) {
+void ASTCEncoder::generateMips(const QImage &ima,
+                               quint64 x,
+                               quint64 y,
+                               quint64 z,
+                               std::vector<QTextureFileData> &out,
+                               QByteArray md5) {
     if (!md5.size()) {
         QCryptographicHash ch(QCryptographicHash::Md5);
         ch.addData(reinterpret_cast<const char *>(ima.constBits()), ima.sizeInBytes());
@@ -323,6 +328,7 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
                                        d->quality,
                                        halved.size().width(),
                                        halved.size().height(),
+                                       -1,-1,-1, // do not insert metadata
                                        compressed);
                     halved = ASTCEncoder::halve(halved);
                 }
@@ -339,6 +345,7 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
                            d->quality,
                            size.width(),
                            size.height(),
+                           x,y,z,
                            out.back().data());
         halved = ima;
         while (isEven(size)) {
@@ -353,6 +360,7 @@ void ASTCEncoder::generateMips(const QImage &ima, std::vector<QTextureFileData> 
                                d->quality,
                                size.width(),
                                size.height(),
+                               -1,-1,-1, // do not insert metadata
                                out.back().data());
         }
     }

@@ -130,7 +130,7 @@ float screenSpaceTileSize(const QDoubleMatrix4x4 &m) {
     const auto tileSizeNormalized = qMax(d0.length(), d1.length());
 
     const double radius = 1. + tileSizeNormalized;
-    // TODO: enable only on high pitch/high zoom!!!
+    // TODO: enable extra radius only on high pitch/high zoom!!!
     const double radiusBottom = 1. + tileSizeNormalized * 3;
     if (   p0.x() < -radius || p0.x() > radius || p0.y() < -radiusBottom || p0.y() > radius
         || p1.x() < -radius || p1.x() > radius || p1.y() < -radiusBottom || p1.y() > radius
@@ -169,7 +169,7 @@ struct Origin {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
         m_shader->bind();
         QMatrix4x4 matData;
-#if 0
+#if 0  // center on the mercator space
         matData.scale({1,1,.45});
         matData.translate({.5,.5, 0});
 #endif
@@ -539,7 +539,7 @@ struct Tile
             int maxHSize = std::max(h.m_size.width(), h.m_size.height());
             if (m_maxTexSize && maxHSize > m_maxTexSize) {
                 h.rescale(m_maxTexSize);
-//            h.rescale(QSize(32,32));
+                // h.rescale(QSize(32,32));
                 m_resolution = h.size();
             }
 
@@ -738,7 +738,6 @@ struct Tile
 
     inline int totVertices(bool joinTiles, int stride = 1) const {
         const int toSubtract = (joinTiles && stride > 1) ? 2 : 0;
-//        const int toAdd = (joinTiles && stride == 1) ? 2 : 0;
         const int toAdd = (joinTiles) ? 2 : 0;
         return ((m_resolution.width() - toSubtract) / stride + toAdd  - 1)
                 * ((m_resolution.height() - toSubtract) / stride + toAdd - 1) * 6;
@@ -956,7 +955,6 @@ protected:
     void render() override
     {
         QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-//        auto *f4 = QOpenGLContext::currentContext()->versionFunctions<QOpenGLFunctions_4_0_Core>();
 
         f->glClearColor(0, 0, 0, 0);
         f->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -965,14 +963,7 @@ protected:
         f->glDepthMask(true);
 
 
-//        GLint polygonMode;
-//        f->glGetIntegerv(GL_POLYGON_MODE, &polygonMode);
-//        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
-//        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
-//        f45->glPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
-
-
-        const bool fast = true; //(m_interactive && m_fastInteraction) || (m_fastInteraction && !m_autoRefinement);
+        const bool fast = true;
 
         if (!m_geoReferenced)
             Origin::draw(toMatrix4x4(m_arcballTransform), m_centerOffset, 1);
@@ -1036,7 +1027,6 @@ protected:
                    m_geoReferenced);
         }
 
-//        f4->glPolygonMode( GL_FRONT_AND_BACK, polygonMode );
         if (m_window)
             m_window->resetOpenGLState();
     }

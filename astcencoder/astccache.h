@@ -46,6 +46,9 @@ public:
                 float quality,
                 int width,
                 int height,
+                qint64 x,
+                qint64 y,
+                qint64 z,
                 const QByteArray &tile);
 
     QByteArray tile(const QByteArray &tileHash,
@@ -66,8 +69,10 @@ protected:
 
     // Queries
     QSqlQuery m_queryCreation;
+    QSqlQuery m_queryCreationMeta;
     QSqlQuery m_queryFetchData;
     QSqlQuery m_queryInsertData;
+    QSqlQuery m_queryInsertMetadata;
     QSqlQuery m_queryHasData;
     bool m_initialized{false};
 };

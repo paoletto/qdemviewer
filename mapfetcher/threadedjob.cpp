@@ -617,7 +617,11 @@ void Raster2ASTCHandler::process()
     }
     std::shared_ptr<CompressedTextureData> t =
             std::static_pointer_cast<CompressedTextureData>(
-                ASTCCompressedTextureData::fromImage(d->m_rasterImage, d->m_md5));
+                ASTCCompressedTextureData::fromImage(d->m_rasterImage,
+                                                     d->m_k.x,
+                                                     d->m_k.y,
+                                                     d->m_k.z,
+                                                     d->m_md5));
 
     if (d->m_coverage)
         emit insertCoverageASTC(d->m_id, t);
@@ -827,6 +831,9 @@ bool ASTCCompressedTextureData::hasCompressedData() const
 
 std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage(
         const std::shared_ptr<QImage> &i,
+        qint64 x,
+        qint64 y,
+        qint64 z,
         QByteArray md5)
 {
     std::shared_ptr<ASTCCompressedTextureData> res = std::make_shared<ASTCCompressedTextureData>();
@@ -840,7 +847,10 @@ std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage
         qWarning() << "Warning: cannot generate mips for size"<<size;
     }
 
-    ASTCEncoder::instance().generateMips(*res->m_image, res->m_mips, std::move(md5));
+    ASTCEncoder::instance().generateMips(*res->m_image,
+                                         x,y,z,
+                                         res->m_mips,
+                                         std::move(md5));
 
     return res;
 }

@@ -226,7 +226,12 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
     QSize size() const override;
     bool hasCompressedData() const override;
 
-    static std::shared_ptr<ASTCCompressedTextureData> fromImage(const std::shared_ptr<QImage> &i, QByteArray md5);
+    static std::shared_ptr<ASTCCompressedTextureData> fromImage(
+                                        const std::shared_ptr<QImage> &i,
+                                        qint64 x,
+                                        qint64 y,
+                                        qint64 z,
+                                        QByteArray md5);
 
     std::shared_ptr<QImage> m_image;
     std::vector<QTextureFileData> m_mips;
@@ -290,9 +295,15 @@ public:
     void setURLTemplate(const QString &urlTemplate);
 
 signals:
-    void tileReady(quint64 id, const TileKey k, std::shared_ptr<QImage>, QByteArray md5 = {});
-    void compressedTileDataReady(quint64 id, const TileKey k, std::shared_ptr<QByteArray>);
-    void coverageReady(quint64 id, std::shared_ptr<QImage>);
+    void tileReady(quint64 id,
+                   const TileKey k,
+                   std::shared_ptr<QImage>,
+                   QByteArray md5 = {});
+    void compressedTileDataReady(quint64 id,
+                                 const TileKey k,
+                                 std::shared_ptr<QByteArray>);
+    void coverageReady(quint64 id,
+                       std::shared_ptr<QImage>);
     void requestHandlingFinished(quint64 id);
 
 protected slots:
