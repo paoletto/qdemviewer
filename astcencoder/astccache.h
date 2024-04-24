@@ -46,9 +46,9 @@ public:
                 float quality,
                 int width,
                 int height,
-                qint64 x,
-                qint64 y,
-                qint64 z,
+                quint64 x,
+                quint64 y,
+                quint64 z,
                 const QByteArray &tile);
 
     QByteArray tile(const QByteArray &tileHash,

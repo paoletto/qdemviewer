@@ -333,7 +333,7 @@ void ASTCEncoder::generateMips(const QImage &ima,
                                        d->quality,
                                        halved.size().width(),
                                        halved.size().height(),
-                                       -1,-1,-1, // do not insert metadata
+                                       x,y,z,
                                        compressed);
                     halved = ASTCEncoder::halve(halved);
                 }
@@ -365,7 +365,7 @@ void ASTCEncoder::generateMips(const QImage &ima,
                                d->quality,
                                size.width(),
                                size.height(),
-                               -1,-1,-1, // do not insert metadata
+                               x,y,z,
                                out.back().data());
         }
     }
