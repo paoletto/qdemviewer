@@ -19,6 +19,7 @@
 ****************************************************************************/
 
 #include "networksqlitecache_p.h"
+#include "utils_p.h"
 #include <QFileInfo>
 #include <QRandomGenerator>
 #include <QDateTime>
@@ -131,7 +132,10 @@ NetworkSqliteCache::~NetworkSqliteCache() {}
 
 QNetworkCacheMetaData NetworkSqliteCache::metaData(const QUrl &url) {
     ScopeExit releaser([this]() {m_queryFetchData.finish();});
-    m_queryFetchData.bindValue(0, url);
+    QUrl u = url;
+    u.setHost(hostWildcard(url.host()));
+
+    m_queryFetchData.bindValue(0, u);
     if (!m_queryFetchData.exec()) {
         qDebug() << m_queryFetchData.lastError() <<  __FILE__ << __LINE__;
         return {};
@@ -147,6 +151,8 @@ QNetworkCacheMetaData NetworkSqliteCache::metaData(const QUrl &url) {
 
         //TODO: enable this conditionally
         res.setExpirationDate(QDateTime::currentDateTime().addDays(365));
+        // mangle URL as well, give requestor what they asked for
+        res.setUrl(url);
         return res;
     }
     return {};
@@ -162,8 +168,11 @@ void NetworkSqliteCache::updateMetaData(const QNetworkCacheMetaData &metaData) {
     out << metaData;
     metadata.close();
 
+    QUrl u = metaData.url();
+    u.setHost(hostWildcard(u.host()));
+
     m_queryUpdateMetadata.bindValue(0, /* metadata */ metadata.buffer());
-    m_queryUpdateMetadata.bindValue(1, /* url */ metaData.url());
+    m_queryUpdateMetadata.bindValue(1, /* url */ u);
 
     if (!m_queryUpdateMetadata.exec()) {
         qDebug() << m_queryUpdateMetadata.lastError() <<  __FILE__ << __LINE__;
@@ -173,7 +182,10 @@ void NetworkSqliteCache::updateMetaData(const QNetworkCacheMetaData &metaData) {
 
 QIODevice *NetworkSqliteCache::data(const QUrl &url) {
     ScopeExit releaser([this]() {m_queryFetchData.finish();});
-    m_queryFetchData.bindValue(0, url);
+    QUrl u = url;
+    u.setHost(hostWildcard(u.host()));
+
+    m_queryFetchData.bindValue(0, u);
     if (!m_queryFetchData.exec()) {
         qDebug() << m_queryFetchData.lastError() <<  __FILE__ << __LINE__;
         return nullptr;
@@ -201,7 +213,7 @@ qint64 NetworkSqliteCache::cacheSize() const {
 void NetworkSqliteCache::insert(QIODevice *device) {
     if (!m_inserting.contains(device))
         return;
-    const auto url = std::move(m_inserting[device]);
+    QUrl url = std::move(m_inserting[device]);
     m_inserting.remove(device);
     QScopedPointer<QIODevice> data;
     data.swap(m_insertingData[url]);
@@ -215,10 +227,12 @@ void NetworkSqliteCache::insert(QIODevice *device) {
     out << meta;
     metadata.close();
 
+
     QSqlQuery *q = (contains(url)) ? &m_queryUpdateData : &m_queryInsertData;
 
     ScopeExit releaser([q]() {q->finish();});
     // Fire insert query
+    url.setHost(hostWildcard(url.host()));
     q->bindValue(0, /* metadata */ metadata.buffer());
     q->bindValue(1, /* data */ buffer->buffer());
     q->bindValue(2, /* url */ url);
@@ -227,12 +241,33 @@ void NetworkSqliteCache::insert(QIODevice *device) {
         qDebug() << "Insert query failed!" << q->lastError() << url << __FILE__ << __LINE__;
 }
 
+void NetworkInMemoryCache::addEquivalenceClass(const QString &urlTemplate)
+{
+    const auto res = extractTemplates(urlTemplate);
+    if (res.alternatives.size() <= 1
+            || res.hostAlternatives.size() <= 1
+            || res.hostWildcarded.isEmpty())
+        return;
+
+    for (const auto &h: res.hostAlternatives)
+        m_host2wildcard[h] = res.hostWildcarded;
+}
+
+QString NetworkInMemoryCache::hostWildcard(const QString &host)
+{
+    const auto it = m_host2wildcard.find(host);
+    if (it == m_host2wildcard.end())
+        return host;
+    return it->second;
+}
+
 void NetworkSqliteCache::clear() {
     // TODO: Implement
 }
 
-bool NetworkSqliteCache::contains(const QUrl &url) {
+bool NetworkSqliteCache::contains(QUrl url) {
     ScopeExit releaser([this]() {m_queryCheckUrl.finish();});
+    url.setHost(hostWildcard(url.host()));
     m_queryCheckUrl.bindValue(0, url);
     if (!m_queryCheckUrl.exec()) {
         qDebug() << m_queryCheckUrl.lastError() <<  __FILE__ << __LINE__;
@@ -246,8 +281,13 @@ NetworkInMemoryCache::NetworkInMemoryCache(QObject *parent) : QAbstractNetworkCa
 NetworkInMemoryCache::~NetworkInMemoryCache() {}
 
 QNetworkCacheMetaData NetworkInMemoryCache::metaData(const QUrl &url) {
-    if (m_metadata.contains(url))
-        return m_metadata.value(url);
+    QUrl u = url;
+    u.setHost(hostWildcard(url.host()));
+
+    if (m_metadata.contains(u)) {
+        auto res = m_metadata.value(u);
+        res.setUrl(url);
+    }
     return {};
 }
 
@@ -261,18 +301,21 @@ void NetworkInMemoryCache::updateMetaData(const QNetworkCacheMetaData &metaData)
     if (!newDevice) {
         return;
     }
-    char data[1024];
+    char data_[1024];
     while (!oldDevice->atEnd()) {
-        qint64 s = oldDevice->read(data, 1024);
-        newDevice->write(data, s);
+        qint64 s = oldDevice->read(data_, 1024);
+        newDevice->write(data_, s);
     }
     delete oldDevice;
     insert(newDevice);
 }
 
 QIODevice *NetworkInMemoryCache::data(const QUrl &url) {
-    if (m_content.find(url) != m_content.end()) {
-        const QBuffer *b = qobject_cast<const QBuffer *>(m_content[url].data());
+    QUrl u = url;
+    u.setHost(hostWildcard(url.host()));
+
+    if (m_content.find(u) != m_content.end()) {
+        const QBuffer *b = qobject_cast<const QBuffer *>(m_content[u].data());
         QBuffer *res = new QBuffer();
         res->setData(b->buffer());
         res->open(QBuffer::ReadOnly);
@@ -321,14 +364,19 @@ QIODevice *NetworkInMemoryCache::prepare(const QNetworkCacheMetaData &metaData) 
 void NetworkInMemoryCache::insert(QIODevice *device) {
     if (!m_inserting.contains(device))
         return;
-    const auto url = std::move(m_inserting[device]);
+    QUrl url = std::move(m_inserting[device]);
     m_inserting.remove(device);
     QScopedPointer<QIODevice> data;
     data.swap(m_insertingData[url]);
     m_insertingData.erase(url);
-    m_content[url].swap(data);
-    m_metadata[url] = m_insertingMetadata.at(url);
+
+    QNetworkCacheMetaData meta = std::move(m_insertingMetadata[url]);
     m_insertingMetadata.erase(url);
+
+    url.setHost(hostWildcard(url.host()));
+
+    m_content[url].swap(data);
+    m_metadata[url] = std::move(meta);
 }
 
 void NetworkInMemoryCache::clear() {

@@ -45,15 +45,6 @@ using TileCache = std::unordered_map<TileKey, std::shared_ptr<QImage>>;
 using TileCacheCache = std::unordered_map<TileKey, std::set<TileData>>;
 using TileCacheASTC = std::unordered_map<TileKey, std::shared_ptr<CompressedTextureData>>;
 
-//struct GeoTileSpec {
-//    QGeoTileSpec ts;
-//    Heightmap::Neighbors nb;
-
-//    bool operator == (const GeoTileSpec &rhs) const;
-//    bool operator < (const GeoTileSpec &rhs) const;
-//};
-
-//QDebug operator<<(QDebug d, const GeoTileSpec &k);
 struct ThreadedJobData {
     enum class JobType {
         Invalid = 0,
@@ -469,6 +460,7 @@ public:
     ~NetworkIOManager() override = default;
 
 public slots:
+    void addURLTemplate(const QString urlTemplate);
     void requestSlippyTiles(MapFetcher *mapFetcher,
                             quint64 requestId,
                             const QList<QGeoCoordinate> &crds,
@@ -553,6 +545,11 @@ public:
 
     NetworkManager(NetworkManager const&) = delete;
     void operator=(NetworkManager const&) = delete;
+
+    void addURLTemplate(const QString &urlTemplate) {
+        QMetaObject::invokeMethod(m_manager.get(), "addURLTemplate", Qt::QueuedConnection
+                                  , Q_ARG(QString , urlTemplate));
+    }
 
     quint64 requestSlippyTiles(MapFetcher &mapFetcher,
                                const QList<QGeoCoordinate> &crds,

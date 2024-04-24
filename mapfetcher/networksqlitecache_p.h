@@ -32,6 +32,7 @@
 #include <QMutexLocker>
 #include <QThread>
 #include <QBuffer>
+#include <unordered_map>
 #include <QDebug>
 #include <QDataStream>
 
@@ -50,6 +51,9 @@ public:
     QIODevice *prepare(const QNetworkCacheMetaData &metaData) override;
     void insert(QIODevice *device) override;
 
+    void addEquivalenceClass(const QString &urlTemplate);
+    QString hostWildcard(const QString &host);
+
 public Q_SLOTS:
     void clear() override;
 
@@ -59,6 +63,7 @@ protected:
     QMap<QIODevice*, QUrl> m_inserting;
     std::map<QUrl, QScopedPointer<QIODevice>> m_insertingData;
     std::map<QUrl, QNetworkCacheMetaData> m_insertingMetadata;
+    std::unordered_map<QString, QString> m_host2wildcard;
 
 private:
     Q_DISABLE_COPY(NetworkInMemoryCache)
@@ -78,11 +83,12 @@ public:
     qint64 cacheSize() const override;
     void insert(QIODevice *device) override;
 
+
 public Q_SLOTS:
     void clear() override;
 
 protected:
-    bool contains(const QUrl &url);
+    bool contains(QUrl url);
 
 protected:
     QString m_sqlitePath;
