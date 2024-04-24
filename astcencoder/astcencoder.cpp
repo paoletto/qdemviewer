@@ -136,6 +136,10 @@ ASTCEncoder &ASTCEncoder::instance()
 }
 
 QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
+    if (ima.hasAlphaChannel())
+       ima = ima.convertToFormat(QImage::Format_ARGB32);
+    else
+        ima = ima.convertToFormat(QImage::Format_RGB32);
     // Compute the number of ASTC blocks in each dimension
     unsigned int block_count_x = (ima.width() + d->block_x - 1) / d->block_x;
     unsigned int block_count_y = (ima.height() + d->block_y - 1) / d->block_y;
@@ -214,7 +218,7 @@ QImage ASTCEncoder::halve(const QImage &src) { // TODO: change into move once m_
     const QSize size = QSize(src.width() / 2, src.height() / 2);
     const float hMultiplier = src.width() / float(size.width());
     const float vMultiplier = src.height() / float(size.height());
-    QImage res(size, src.format());
+    QImage res(size, QImage::Format_RGB32);
 
     float pixelsPerPatch = int(hMultiplier) * int(vMultiplier);
     for (int y = 0; y < size.height(); ++y) {
@@ -263,10 +267,11 @@ QTextureFileData ASTCEncoder::fromCached(QByteArray &cached) {
 void ASTCEncoder::generateMips(QImage ima, std::vector<QImage> &out)
 {
     QSize size = ima.size();
-    QImage halved;
-    out.emplace_back(ima);
+    QImage halved = (ima.hasAlphaChannel())
+                        ? ima.convertToFormat(QImage::Format_ARGB32)
+                        : ima.convertToFormat(QImage::Format_RGB32);
+    out.emplace_back(halved);
 
-    halved = std::move(ima);
     while (isEven(size)) {
         size = QSize(size.width() / 2, size.height() / 2);
         if (size.width() < ASTCEncoder::blockSize())
