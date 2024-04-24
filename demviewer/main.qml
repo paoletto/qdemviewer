@@ -289,7 +289,7 @@ QC2.ApplicationWindow {
                 text: qsTr("ASTC compression")
                 checkable: true
                 checked: false
-                enabled: astcEnabled
+                enabled: astcSupported
 
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
