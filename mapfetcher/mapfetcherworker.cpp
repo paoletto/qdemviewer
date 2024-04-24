@@ -22,6 +22,7 @@
 #include "mapfetcher_p.h"
 #include "networksqlitecache_p.h"
 #include "tilecache_p.h"
+#include "utils_p.h"
 
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtLocation/private/qgeocameratiles_p_p.h>
@@ -237,7 +238,7 @@ std::set<GeoTileSpec> tilesFromBounds(const QList<QGeoCoordinate> &crds,
     return res;
 }
 void requestMapTiles(const std::set<GeoTileSpec> &tiles,
-                     const QString &urlTemplate,
+                     const QList<QString> &urlTemplate,
                      const quint8 destinationZoom,
                      const quint64 id,
                      const bool coverageRequest,
@@ -246,9 +247,9 @@ void requestMapTiles(const std::set<GeoTileSpec> &tiles,
                      const char *onFinishedSlot,
                      QObject *destError,
                      const char *onErrorSlot) {
-
+    int i = 0;
     for (const auto &t: tiles) {
-        auto tileUrl = urlTemplate;
+        auto tileUrl = urlTemplate[i++ % urlTemplate.size()];
         tileUrl = tileUrl.replace(QStringLiteral("{x}"), QString::number(t.ts.x()))
                 .replace(QStringLiteral("{y}"), QString::number(t.ts.y()))
                 .replace(QStringLiteral("{z}"), QString::number(t.ts.zoom()));
@@ -310,6 +311,10 @@ public:
 
     QString cachePath() const {
         return m_cacheDirPath;
+    }
+
+    void addURLMultiTemplate(const QString &urlTemplate) {
+        m_networkCache.addEquivalenceClass(urlTemplate);
     }
 
 private:
@@ -457,6 +462,11 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
 //    connect(reply, &QNetworkReply::destroyed,
 //            this, &ThrottledNetworkFetcher::onFinished, Qt::QueuedConnection);
     ++m_active;
+}
+
+void NetworkIOManager::addURLTemplate(const QString urlTemplate)
+{
+    NAM::instance().addURLMultiTemplate(urlTemplate);
 }
 
 void NetworkIOManager::requestSlippyTiles(MapFetcher *f,
@@ -776,6 +786,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     const QString urlTemplate = (d->m_urlTemplate.isEmpty())
             ? urlTemplateTerrariumS3
             : d->m_urlTemplate;
+    const URLTemplate urlTemplates =  extractTemplates(urlTemplate);
     d->m_request2urlTemplate[requestId] = urlTemplate;
     d->m_request2sourceZoom[requestId] = zoom;
     auto *df = qobject_cast<DEMFetcherWorker *>(this);
@@ -790,14 +801,13 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
         quint64 sideLength = 1 << int(zoom);
         const size_t numSubtiles = sideLength / destSideLength;
         std::set<GeoTileSpec> srcTiles;
-        auto &compoundCache = CompoundTileCache::instance();
         for (const auto &dt: tiles) {
-            if (compound && compoundCache.initialized()) {
-                QByteArray data = compoundCache.tileMD5(urlTemplate,
-                                                dt.ts.x(),
-                                                dt.ts.y(),
-                                                zoom,
-                                                destinationZoom);
+            if (compound && CompoundTileCache::instance().initialized()) {
+                QByteArray data = CompoundTileCache::instance().tileMD5(urlTemplate,
+                                                                        dt.ts.x(),
+                                                                        dt.ts.y(),
+                                                                        zoom,
+                                                                        destinationZoom);
                 if (data.size()) {
                     cachedCompoundTileHandlers.push_back(new CachedCompoundTileData(
                                                                requestId
@@ -849,7 +859,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     }
 
     requestMapTiles(tiles,
-                    urlTemplate,
+                    urlTemplates.alternatives,
                     (compound) ? originalDestinationZoom : zoom,
                     requestId,
                     false,
@@ -868,10 +878,10 @@ void MapFetcherWorker::requestCoverage(quint64 requestId, const QList<QGeoCoordi
         qWarning() << "requestCoverage: empty bounds";
         return;
     }
-    const QString urlTemplate = (d->m_urlTemplate.isEmpty()) ? urlTemplateTerrariumS3 : d->m_urlTemplate;
+    const URLTemplate urlTemplates = extractTemplates((d->m_urlTemplate.isEmpty()) ? urlTemplateTerrariumS3 : d->m_urlTemplate);
 
     requestMapTiles(tiles,
-                    urlTemplate,
+                    urlTemplates.alternatives,
                     zoom,
                     requestId,
                     true,

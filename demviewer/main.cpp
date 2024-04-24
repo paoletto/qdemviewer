@@ -1652,8 +1652,8 @@ int main(int argc, char *argv[])
     ASTCFetcher *rasterFetcher = new ASTCFetcher(&engine);
     rasterFetcher->setObjectName("Raster Fetcher");
     rasterFetcher->setURLTemplate(QLatin1String("https://tile.openstreetmap.org/{z}/{x}/{y}.png"));
-//    rasterFetcher->setURLTemplate(QLatin1String("http://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}")); // hybrid
-//    rasterFetcher->setURLTemplate(QLatin1String("http://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}")); // sat only
+//    rasterFetcher->setURLTemplate(QLatin1String("http://mt[0,1,2,3].google.com/vt/lyrs=y&x={x}&y={y}&z={z}")); // hybrid
+//    rasterFetcher->setURLTemplate(QLatin1String("http://mt[0,1,2,3].google.com/vt/lyrs=s&x={x}&y={y}&z={z}")); // sat only
 //    rasterFetcher->setURLTemplate(QLatin1String("https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"));
 
     Utilities *utilities = new Utilities(&engine);

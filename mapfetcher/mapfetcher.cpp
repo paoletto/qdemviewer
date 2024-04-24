@@ -22,6 +22,7 @@
 #include "mapfetcher_p.h"
 #include "networksqlitecache_p.h"
 #include "tilecache_p.h"
+#include "utils_p.h"
 
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtLocation/private/qgeocameratiles_p_p.h>
@@ -149,7 +150,9 @@ std::shared_ptr<QImage> MapFetcher::tileCoverage(quint64 id)
 
 void MapFetcher::setURLTemplate(const QString &urlTemplate) {
     Q_D(MapFetcher);
+
     d->m_urlTemplate = urlTemplate;
+    NetworkManager::instance().addURLTemplate(urlTemplate);
 }
 
 QString MapFetcher::urlTemplate() const
@@ -719,3 +722,38 @@ void ASTCCompressedTextureData::initStatics() {
     loadASTCMips("transparent", m_transparent8x8ASTC);
 }
 
+
+URLTemplate extractTemplates(QString urlTemplate) {
+    URLTemplate res;
+    // TODO: support multiple subsets?
+    int setStart = urlTemplate.indexOf('[');
+    if (setStart < 6) {// account for the scheme
+        QUrl u(urlTemplate);
+        if (!u.isValid()) {
+            qWarning() << "NetworkSqliteCache::addEquivalenceClass: invalid url template "<<u << u.errorString();
+            return res;
+        }
+        res.alternatives.append(urlTemplate);
+        return res;
+    }
+
+    int setEnd = urlTemplate.indexOf(']', setStart);
+
+    QString setString = urlTemplate.mid(setStart + 1, setEnd - setStart - 1);
+    if (setString.isEmpty()) {
+        res.alternatives.append(urlTemplate);
+        return res;
+    }
+
+    for (const auto &c: setString.split(',')) {
+        auto t = urlTemplate;
+        t.replace(setStart, setEnd - setStart + 1, c);
+        res.alternatives.append(t);
+        res.hostAlternatives.append(QUrl(t).host());
+    }
+    auto w = urlTemplate;
+    w.replace(setStart, setEnd - setStart + 1, setString.split(',').join(QLatin1String("-")));
+    res.hostWildcarded = QUrl(w).host();
+
+    return res;
+}
