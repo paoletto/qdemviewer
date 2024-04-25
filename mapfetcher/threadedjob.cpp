@@ -291,7 +291,7 @@ void TileReplyHandler::processStandaloneTile()
                                           k,
                                           std::make_shared<QByteArray>(std::move(data)));
         } else {
-            auto tile = std::make_shared<QImage>(QImage::fromData(std::move(data)).mirrored(false, m_computeHash));
+            auto tile = std::make_shared<QImage>(QImage::fromData(std::move(data)).mirrored(false, !m_dem));
             if (m_computeHash)
                 md5 = md5QImage(*tile);
             emit insertTile(id,
@@ -312,7 +312,7 @@ void TileReplyHandler::processStandaloneTile()
         subCache.insert({{x,y,z}, QImage::fromData(std::move(data))});
 
         if (subCache.size() == totSubTiles) {
-            QImage image = assembleTileFromSubtiles(subCache).mirrored(false, m_computeHash);
+            QImage image = assembleTileFromSubtiles(subCache).mirrored(false, !m_dem);
             if (m_computeHash)
                 md5 = md5QImage(image);
             emit insertTile(id,
@@ -324,8 +324,7 @@ void TileReplyHandler::processStandaloneTile()
             emit expectingMoreSubtiles();
         }
     } else { // z < dz -- split
-//        k = TileKey{x,y,z};
-        auto tile = QImage::fromData(std::move(data)).mirrored(false, m_computeHash);
+        auto tile = QImage::fromData(std::move(data)).mirrored(false, !m_dem);
         int nSubTiles = 1 << (dz - z);
         int subTileSize = tile.size().width() / nSubTiles;
 
@@ -523,7 +522,7 @@ void TileReplyHandler::finalizeCoverageRequest(quint64 id)
         res = std::move(clipped);
     }
 
-    emit insertCoverage(id, std::make_shared<QImage>(res.mirrored(false, m_computeHash)));
+    emit insertCoverage(id, std::make_shared<QImage>(res.mirrored(false, !m_dem)));
 }
 
 CachedCompoundTileHandler::CachedCompoundTileHandler(quint64 id, TileKey k, quint8 sourceZoom, QByteArray md5, QString urlTemplate, MapFetcherWorker &mapFetcher)
@@ -610,7 +609,7 @@ void Raster2ASTCHandler::process()
             return;
         }
         d->m_rasterImage =
-                std::make_shared<QImage>(QImage::fromData(*d->m_compressedRaster).mirrored(false, true));
+                std::make_shared<QImage>(QImage::fromData(*d->m_compressedRaster).mirrored(false, true)); // TODO BEWARE of mirrored when doing the same on DEM!!!!!!!!!!
 
         d->m_md5 = md5QImage(*d->m_rasterImage);
     }
@@ -630,7 +629,7 @@ void Raster2ASTCHandler::process()
 
 DEMTileReplyHandler::DEMTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)
 :   TileReplyHandler(reply, mapFetcher) {
-    m_computeHash = false;
+    m_dem = true;
 }
 
 ASTCTileReplyHandler::ASTCTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)

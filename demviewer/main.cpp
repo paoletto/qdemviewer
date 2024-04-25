@@ -127,26 +127,20 @@ float screenSpaceTileSize(const QDoubleMatrix4x4 &m) {
     const auto p3 = m * quad[3];
     const auto d0 = p2.toVector2D() - p0.toVector2D();
     const auto d1 = p3.toVector2D() - p1.toVector2D();
-    const auto tileSizeNormalized = qMax(d0.length(), d1.length());
+    const auto tileSizeScreen = qMax(d0.length(), d1.length());
 
-    const double radius = 1. + tileSizeNormalized;
+    const double radius = 1. + tileSizeScreen; // viewport = [-1,+1]
     // TODO: enable extra radius only on high pitch/high zoom!!!
-    const double radiusBottom = 1. + tileSizeNormalized * 3;
+//    const double radiusBottom = 1. + tileSizeScreen * 3;
+    const double radiusBottom = 1. + tileSizeScreen * 1.8;
     if (   p0.x() < -radius || p0.x() > radius || p0.y() < -radiusBottom || p0.y() > radius
         || p1.x() < -radius || p1.x() > radius || p1.y() < -radiusBottom || p1.y() > radius
         || p2.x() < -radius || p2.x() > radius || p2.y() < -radiusBottom || p2.y() > radius
         || p3.x() < -radius || p3.x() > radius || p3.y() < -radiusBottom || p3.y() > radius) {
         return -1; // TODO: broken! needs to keep elevation * scale into account!!!
     }
-    return tileSizeNormalized;
+    return tileSizeScreen;
 }
-//QPointF tileCenterScreen(const QMatrix4x4 &m) {
-//    return (m * QVector3D(.5,.5,0)).toPointF();
-//}
-//bool viewportContains(const QPointF &p, float tileSizeNormalized) {
-//    float radius = 1. + tileSizeNormalized * .5;
-//    return p.x() >= -radius && p.x() <= radius && p.y() >= -radius && p.y() <= radius;
-//}
 }
 struct Origin {
     static void draw(const QMatrix4x4 &transformation,
@@ -665,7 +659,9 @@ struct Tile
             tileMatrix = tileTransformation(origin);
 
         const QDoubleMatrix4x4 dm = transformation * tileMatrix;
-
+        const QMatrix4x4 m = toMatrix4x4(dm);
+        auto rasterTxt = mapTexture();
+        auto demTxt = demTexture();
 #if 1
         const float tileSize = screenSpaceTileSize(dm);
 
@@ -675,13 +671,12 @@ struct Tile
         const float tileSizePixels = tileSize * viewportSize.width() * .5;
         const double tileSizeOnScreen = (1 << qMax<int>(0, int(floor(log2(tileSizePixels)))));
 
-        int idealRate = qMax<int>(1, 256. / tileSizeOnScreen);
+        const double tileInnerSamples = (demTxt) ? demTxt->width() - 2 : 256.;
+        int idealRate = qMax<int>(1, tileInnerSamples / tileSizeOnScreen);
 #else
         int idealRate = 16;
 #endif
-        const QMatrix4x4 m = toMatrix4x4(dm);
 
-        auto rasterTxt = mapTexture();
         // TODO: streamline, fix, deduplicate
         QOpenGLShaderProgram *shader = (rasterTxt) ? m_shaderTextured
                                                    : m_shader;
@@ -693,7 +688,7 @@ struct Tile
         }
 
         QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
-        ef->glBindImageTexture(0, (demTexture()) ? demTexture()->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8); // TODO: test readonly
+        ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
 
         shader->bind();
         f->glEnable(GL_TEXTURE_2D);
@@ -704,9 +699,9 @@ struct Tile
         }
 
         int stride = (interactive) ?
-                        qBound(1 ,
+                        qBound<int>(1 ,
                                autoStride ? qMax(downsamplingRate, idealRate) : downsamplingRate,
-                               256)
+                               tileInnerSamples)
                         : 1;
 
         auto resolution = m_resolution;
@@ -994,7 +989,7 @@ protected:
                 else
                     replicate = false;
 
-                // TODO: fix this
+                // TODO: fix this. Ideally render twice wrapping tiles at very low zoom level.
 //                if (replicate) {
 //                    QDoubleMatrix4x4 translationMatrixReplica;
 //                    translationMatrixReplica.translate(m_centerOffset);
@@ -1657,7 +1652,7 @@ int main(int argc, char *argv[])
 //    rasterFetcher->setURLTemplate(QLatin1String("https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"));
 
     Utilities *utilities = new Utilities(&engine);
-    utilities->setLogPath("/tmp/demviewer.log");
+    utilities->setLogPath(QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/demviewer.log"));
 
     engine.rootContext()->setContextProperty("utilities", utilities);
     engine.rootContext()->setContextProperty("demfetcher", demFetcher);

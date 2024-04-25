@@ -732,10 +732,10 @@ void DEMFetcherWorker::onCoverageReady(quint64 id,  std::shared_ptr<QImage> i)
 {
     Q_D(DEMFetcherWorker);
     auto h = new DEMReadyData(i,
-                                 {0,0,0},
-                                 *this,
-                                 id,
-                                 true);
+                              {0,0,0},
+                              *this,
+                              id,
+                              true);
     d->m_worker->schedule(h);
 }
 
@@ -779,9 +779,9 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     auto tiles = tilesFromBounds(crds, destinationZoom); // Calculating using dz to avoid partial coverage
     for (const auto &t: tiles) {
         d->trackNeighbors(requestId,
-                          {quint64(t.ts.x()), quint64(t.ts.y()), zoom},
+                          {quint64(t.ts.x()), quint64(t.ts.y()), quint8(t.ts.zoom())},
                           t.nb,
-                          originalDestinationZoom); // has effect only with DEM
+                          originalDestinationZoom); // trackNeighbors has effect only with DEM
     }
     const QString urlTemplate = (d->m_urlTemplate.isEmpty())
             ? urlTemplateTerrariumS3
@@ -795,7 +795,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
         af->d_func()->m_request2remainingASTCHandlers[requestId] = 0;
     quint64 srcTilesSize = tiles.size();
     std::vector<CachedCompoundTileData *> cachedCompoundTileHandlers;
-    if (destinationZoom < zoom) { // Only happens with Raster
+    if (destinationZoom < zoom) {
         // split tiles to request
         quint64 destSideLength = 1 << int(destinationZoom);
         quint64 sideLength = 1 << int(zoom);
@@ -847,7 +847,6 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     d->m_request2remainingHandlers.emplace(requestId,
                                            tiles.size() * subtilesPerTile(zoom, destinationZoom));
     // TODO: replace with polymorphism
-
     if (df) {
         df->d_func()->m_request2remainingDEMHandlers[requestId] =
                 srcTilesSize * subtilesPerTile(zoom, destinationZoom); // TODO: deduplicate? m_request2remainingHandlers might be enough
@@ -928,7 +927,7 @@ void MapFetcherWorker::onTileReplyFinished() {
     auto *af = qobject_cast<ASTCFetcherWorker *>(this);
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
-        d->m_request2remainingHandlers[id] -= subtilesPerTile(z, dz);
+        d->m_request2remainingHandlers[id] -= subtilesPerTile(z, dz); // subtilesPerTile > 1 only during fragmentation
         if (df) {
             df->d_func()->m_request2remainingDEMHandlers[id] -= subtilesPerTile(z, dz);
             if (df->d_func()->m_request2remainingDEMHandlers[id] <= 0) {// TODO: deduplicate? m_request2remainingHandlers might be enough
@@ -1031,7 +1030,7 @@ void DEMFetcherWorkerPrivate::trackNeighbors(quint64 id,
                                              quint8 destinationZoom)
 {
     if (k.z == destinationZoom) {
-        m_request2Neighbors[id][k] = {n, boundaryRasters};
+        insertNeighbors(id, k, n, boundaryRasters);
     } else if (k.z < destinationZoom) {
         int nSubTiles = subtileSide(k.z, destinationZoom);
         auto getBoundaries = [nSubTiles, n](int x, int y) {

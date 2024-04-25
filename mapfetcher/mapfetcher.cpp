@@ -791,3 +791,12 @@ bool CompressedTextureData::isFormatCompressed(GLint format) {
     };
     return compressedFormats.find(format) != compressedFormats.end();
 }
+
+void DEMFetcherWorkerPrivate::insertNeighbors(quint64 id,
+                                              const TileKey &k,
+                                              Heightmap::Neighbors n,
+                                              std::map<Heightmap::Neighbor, std::shared_ptr<QImage> > boundaryRasters) {
+    std::pair< Heightmap::Neighbors,
+            std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>> nm = {n, std::move(boundaryRasters)};
+    m_request2Neighbors[id][k] = std::move(nm);
+}

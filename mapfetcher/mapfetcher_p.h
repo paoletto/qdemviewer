@@ -396,6 +396,11 @@ public:
                         Heightmap::Neighbors n,
                         quint8 destinationZoom) override;
 
+    void insertNeighbors(quint64 id,
+                         const TileKey &k,
+                         Heightmap::Neighbors n,
+                         std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> boundaryRasters);
+
     std::unordered_map<quint64, TileNeighborsMap> m_request2Neighbors;
     std::unordered_map<quint64, HeightmapCache> m_heightmapCache;
     std::unordered_map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
@@ -692,6 +697,7 @@ protected:
     MapFetcherWorker *m_mapFetcher{nullptr};
     bool m_computeHash{true}; // it's currently only false for DEM, so it tells whether it is a DEM image
     bool m_emitUncompressedData{false};
+    bool m_dem{false};
 };
 
 struct TileReplyData : public ThreadedJobData {

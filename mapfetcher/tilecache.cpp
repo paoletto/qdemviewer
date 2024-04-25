@@ -82,7 +82,7 @@ CompoundTileCache::CompoundTileCache()
         , y INTEGER
         , z INTEGER
         , dz INTEGER
-        , md5 BLOB
+        , md5 TEXT
         , tile BLOB
         , PRIMARY KEY (baseURL, x, y, z, dz)
     )
@@ -148,7 +148,7 @@ bool CompoundTileCache::insert(const QString &tileBaseURL,
     if (!m_initialized)
         return false;
 
-    return insert(tileBaseURL, x, y, sourceZoom, destinationZoom, md5QImage(tile), tile);
+    return insert(tileBaseURL, x, y, sourceZoom, destinationZoom, md5QImage(tile).toBase64(), tile);
 }
 
 bool CompoundTileCache::insert(const QString &tileBaseURL,
@@ -176,7 +176,7 @@ bool CompoundTileCache::insert(const QString &tileBaseURL,
         m_queryInsertData.bindValue(2, y);
         m_queryInsertData.bindValue(3, sourceZoom);
         m_queryInsertData.bindValue(4, destinationZoom);
-        m_queryInsertData.bindValue(5, md5);
+        m_queryInsertData.bindValue(5, md5.toBase64());
         m_queryInsertData.bindValue(6, data);
 
         res = m_queryInsertData.exec();
@@ -244,7 +244,7 @@ QByteArray CompoundTileCache::tileMD5(const QString &tileBaseURL, int x, int y, 
     }
 
     if (m_queryFetchHash.first())
-        return m_queryFetchHash.value(0).toByteArray();
+        return QByteArray::fromBase64(m_queryFetchHash.value(0).toByteArray());
     return {};
 }
 
@@ -265,7 +265,7 @@ QPair<QByteArray, QImage> CompoundTileCache::tileRecord(const QString &tileBaseU
     }
 
     if (m_queryFetchBoth.first()) {
-        auto md5 = m_queryFetchBoth.value(0).toByteArray();
+        auto md5 = QByteArray::fromBase64(m_queryFetchBoth.value(0).toByteArray());
         auto imageData = m_queryFetchBoth.value(1).toByteArray();
         QBuffer buffer(&imageData);
         buffer.open(QIODevice::ReadOnly);

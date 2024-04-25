@@ -105,6 +105,7 @@ QC2.ApplicationWindow {
         property alias modelTilt: baseMap2.tilt
         property alias geoReferencing: geoReferencedMenuItem.checked
         property alias demOpacity: alphaSlider.value
+        property alias demCoalescing: demCoalescingSlider.value
         property int selectedProvider: 0
         property var modelTransformation
         property var splitViewState
@@ -321,7 +322,7 @@ QC2.ApplicationWindow {
                 QC2.Slider {
                     id: decimationSlider
                     from: 1
-                    to: 9
+                    to: 13
                     stepSize: 1
                     value: 4
                     snapMode: QC2.Slider.SnapAlways
@@ -383,6 +384,43 @@ QC2.ApplicationWindow {
                         parent: alphaSlider.handle
                         visible: alphaSlider.pressed
                         text: alphaSlider.value.toFixed(2)
+                    }
+                }
+            }
+            RowLayout {
+                spacing: 4
+                width: parent.width
+                Text {
+                    text: "DEM Coalescing"
+                    color: "white"
+                    Layout.alignment: Qt.AlignVCenter
+                    Layout.leftMargin: 2
+                    MouseArea {
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        property bool hovered: false
+                        onEntered: hovered = true
+                        onExited: hovered = false
+                        QC2.ToolTip {
+                            visible: parent.hovered
+                            text: "Coalesce DEM tiles into tiles these many zoom levels less"
+                        }
+                    }
+                }
+
+                QC2.Slider {
+                    id: demCoalescingSlider
+                    from: 0.0
+                    to: 4.0
+                    value: 0
+                    stepSize: 1
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+
+                    QC2.ToolTip {
+                        parent: demCoalescingSlider.handle
+                        visible: demCoalescingSlider.pressed
+                        text: demCoalescingSlider.value.toFixed(2)
                     }
                 }
             }
@@ -595,26 +633,28 @@ QC2.ApplicationWindow {
                         function fireQuery() {
                             var res;
                             if (tileMode.checked) {
+                                let destZoom = Math.max(zlslider.value - settings.demCoalescing, 0)
                                 res = demfetcher.requestSlippyTiles(parent.selectionPolygon,
                                                              zlslider.value,
-                                                             zlslider.value)
+                                                             destZoom)
                                 console.log("Request ",res,"issued")
                                 if (logRequests.checked)
                                     utilities.logRequest(demfetcher,
                                                          parent.selectionPolygon,
-                                                         zlslider.value, zlslider.value)
+                                                         zlslider.value,
+                                                         destZoom)
                                 if (rasterEnabled.checked) {
                                     res = mapFetcher.requestSlippyTiles(
                                                                   parent.selectionPolygon,
                                                                   zlMapSlider.value,
-                                                                  zlslider.value,
+                                                                  destZoom,
                                                                   false)
                                     console.log("Request ",res,"issued")
                                     if (logRequests.checked)
                                         utilities.logRequest(mapFetcher,
                                                              parent.selectionPolygon,
                                                              zlMapSlider.value,
-                                                             zlslider.value)
+                                                             destZoom)
                                 }
                             } else {
                                 res = demfetcher.requestCoverage(parent.selectionPolygon,
