@@ -652,50 +652,49 @@ QC2.ApplicationWindow {
                             QC2.Slider {
                                 id: zlslider
                                 from: 0
-                                to: 19
+                                to: 15
                                 value: 9
                                 property int maxNativeZL: 15
                                 property real stepWidth: 1.0 / (to - from)
                                 stepSize: 1
                                 Layout.fillWidth: true
 
-                                background: Item {
-                                    id: zlslibg
-                                    x: zlslider.leftPadding
-                                    y: zlslider.topPadding + zlslider.availableHeight / 2. - height / 2.
-                                    width: parent.width
-                                    height: implicitHeight
-                                    anchors.alignWhenCentered: false
+//                                background: Item {
+//                                    id: zlslibg
+//                                    x: zlslider.leftPadding
+//                                    y: zlslider.topPadding + zlslider.availableHeight / 2. - height / 2.
+//                                    width: parent.width
+//                                    height: implicitHeight
+//                                    anchors.alignWhenCentered: false
 
-                                    Rectangle {
-                                        id: bgSli
-                                        implicitWidth: 200
-                                        implicitHeight: 4
-                                        width: zlslider.availableWidth * zlslider.stepWidth * (zlslider.maxNativeZL)
-                                        height: implicitHeight
-                                        radius: 2
-                                        color: zlslider.handle.children[0].color
-                                        opacity: 0.4
-                                    }
-                                    Rectangle {
-                                        id: bgSliOver
-                                        anchors.left: bgSli.right
-                                        implicitWidth: 200
-                                        implicitHeight: 4
-                                        width: zlslider.availableWidth - bgSli.width
-                                        height: implicitHeight
-                                        radius: 2
-                                        color: Qt.rgba(1,0.2,0.2,1)
-                                        opacity: 0.7
-                                    }
-                                    Rectangle {
-                                        width: zlslider.visualPosition * zlslider.availableWidth
-                                        height: bgSli.height
-                                        color: zlslider.handle.children[0].color
-                                        radius: 2
-                                    }
-
-                                }
+//                                    Rectangle {
+//                                        id: bgSli
+//                                        implicitWidth: 200
+//                                        implicitHeight: 4
+//                                        width: zlslider.availableWidth * zlslider.stepWidth * (zlslider.maxNativeZL)
+//                                        height: implicitHeight
+//                                        radius: 2
+//                                        color: zlslider.handle.children[0].color
+//                                        opacity: 0.4
+//                                    }
+//                                    Rectangle {
+//                                        id: bgSliOver
+//                                        anchors.left: bgSli.right
+//                                        implicitWidth: 200
+//                                        implicitHeight: 4
+//                                        width: zlslider.availableWidth - bgSli.width
+//                                        height: implicitHeight
+//                                        radius: 2
+//                                        color: Qt.rgba(1,0.2,0.2,1)
+//                                        opacity: 0.7
+//                                    }
+//                                    Rectangle {
+//                                        width: zlslider.visualPosition * zlslider.availableWidth
+//                                        height: bgSli.height
+//                                        color: zlslider.handle.children[0].color
+//                                        radius: 2
+//                                    }
+//                                }
 
                                 QC2.ToolTip {
                                     parent: zlslider.handle
