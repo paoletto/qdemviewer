@@ -321,7 +321,7 @@ QC2.ApplicationWindow {
                 QC2.Slider {
                     id: decimationSlider
                     from: 1
-                    to: 8
+                    to: 9
                     stepSize: 1
                     value: 4
                     snapMode: QC2.Slider.SnapAlways

@@ -706,7 +706,7 @@ struct Tile
         int stride = (interactive) ?
                         qBound(1 ,
                                autoStride ? qMax(downsamplingRate, idealRate) : downsamplingRate,
-                               128)
+                               256)
                         : 1;
 
         auto resolution = m_resolution;
