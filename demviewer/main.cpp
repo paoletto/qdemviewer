@@ -32,6 +32,7 @@
 #include <QtPositioning/private/qlocationutils_p.h>
 #include <QtLocation/private/qgeocameratiles_p_p.h>
 #include <QtLocation/private/qdeclarativegeomap_p.h>
+#include <QtLocation/private/qdeclarativepolygonmapitem_p.h>
 #include <QtLocation/private/qgeomap_p.h>
 #include <QtLocation/private/qgeoprojection_p.h>
 #include <QRandomGenerator>
@@ -203,6 +204,7 @@ public:
         if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcSupported", true);
         }
+        m_window = w;
     }
 
     Q_INVOKABLE void logRequest(MapFetcher *f,
@@ -273,6 +275,15 @@ public:
 
             if (!mFetchers.contains(fetcher))
                 continue;
+            if (m_window) {
+                auto *p = m_window->findChild<QDeclarativePolygonMapItem *>("selectionPolygon");
+                if (p) {
+                    auto shape = p->geoShape();
+                    QGeoPolygon gp(shape);
+                    gp.setPath(coordinates);
+                    p->setGeoShape(gp);
+                }
+            }
             qobject_cast<MapFetcher *>(mFetchers[fetcher])->requestSlippyTiles(
                             coordinates,
                             zoom,
@@ -303,6 +314,7 @@ private:
     QString m_logPath;
     QSharedPointer<QIODevice> m_logFile;
     QVariantList m_requests;
+    QPointer<QQuickWindow> m_window;
 };
 
 class ArcBall : public QObject {

@@ -588,6 +588,7 @@ QC2.ApplicationWindow {
                     property var displayedSelectionPolygon: []
 
                     MapPolygon {
+                        objectName: "selectionPolygon"
                         visible: path.length > 2
                         color: "transparent"
                         border.color: "red"
