@@ -121,39 +121,7 @@ struct CompressedTextureData {
     virtual QSize size() const = 0;
     virtual bool hasCompressedData() const = 0;
 
-    static bool isFormatCompressed(GLint format) {
-        static std::set<GLint> compressedFormats {
-            QOpenGLTexture::RGBA_ASTC_4x4,
-            QOpenGLTexture::RGBA_ASTC_5x4,
-            QOpenGLTexture::RGBA_ASTC_5x5,
-            QOpenGLTexture::RGBA_ASTC_6x5,
-            QOpenGLTexture::RGBA_ASTC_6x6,
-            QOpenGLTexture::RGBA_ASTC_8x5,
-            QOpenGLTexture::RGBA_ASTC_8x6,
-            QOpenGLTexture::RGBA_ASTC_8x8,
-            QOpenGLTexture::RGBA_ASTC_10x5,
-            QOpenGLTexture::RGBA_ASTC_10x6,
-            QOpenGLTexture::RGBA_ASTC_10x8,
-            QOpenGLTexture::RGBA_ASTC_10x10,
-            QOpenGLTexture::RGBA_ASTC_12x10,
-            QOpenGLTexture::RGBA_ASTC_12x12,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_4x4,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_5x4,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_5x5,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_6x5,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_6x6,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_8x5,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_8x6,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_8x8,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_10x5,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_10x6,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_10x8,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_10x10,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_12x10,
-            QOpenGLTexture::SRGB8_Alpha8_ASTC_12x12
-        };
-        return compressedFormats.find(format) != compressedFormats.end();
-    }
+    static bool isFormatCompressed(GLint format);
 };
 
 class MapFetcherPrivate;
