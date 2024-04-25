@@ -498,7 +498,7 @@ void NetworkIOManager::requestSlippyTiles(DEMFetcher *f,
     }
     DEMFetcherWorker *w = getDEMFetcherWorker(f);
     w->setURLTemplate(f->urlTemplate()); // it might change in between requests
-    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom, false);
+    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom, true);
 }
 
 void NetworkIOManager::requestCoverage(MapFetcher *f,
@@ -773,7 +773,7 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
         qWarning() << "requestSlippyTiles: Invalid bounds";
         return;
     }
-    const quint8 originalDestinationZoom = destinationZoom;
+    const quint8 originalDestinationZoom = destinationZoom; // this for the case where dz is larger, and tiles have to be fragmented
     destinationZoom = std::min(zoom, destinationZoom); // clamp dz to zoom. can only be smaller
 
     auto tiles = tilesFromBounds(crds, destinationZoom); // Calculating using dz to avoid partial coverage

@@ -194,7 +194,7 @@ public:
 
     quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
-                               quint8,
+                               quint8 destinationZoom,
                                bool) override;
 
     quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
