@@ -270,14 +270,14 @@ void ASTCEncoder::generateMips(QImage ima, std::vector<QImage> &out)
     QImage halved = (ima.hasAlphaChannel())
                         ? ima.convertToFormat(QImage::Format_ARGB32)
                         : ima.convertToFormat(QImage::Format_RGB32);
-    out.emplace_back(halved);
+    out.emplace_back(halved.convertToFormat(QImage::Format_RGBA8888));
 
     while (isEven(size)) {
         size = QSize(size.width() / 2, size.height() / 2);
         if (size.width() < ASTCEncoder::blockSize())
             break;
         halved = ASTCEncoder::halve(halved);
-        out.emplace_back(halved);
+        out.emplace_back(halved.convertToFormat(QImage::Format_RGBA8888));
     }
 }
 
