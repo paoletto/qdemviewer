@@ -1164,6 +1164,7 @@ public:
                              this, &TerrainViewer::onCoverageReady);
             QObject::connect(m_demFetcher, &MapFetcher::requestHandlingFinished,
                              this, &TerrainViewer::onRequestHandlingFinished);
+            m_demFetcher->setBorders(m_joinTiles);
         }
     }
 
@@ -1213,8 +1214,10 @@ public:
 
     void setJoinTiles(bool v) {
         m_joinTiles = v;
-        m_demFetcher->setBorders(m_joinTiles);
-        interactiveUpdate();
+        if (m_demFetcher) {
+            m_demFetcher->setBorders(m_joinTiles);
+            interactiveUpdate();
+        }
     }
 
     int tessellationDirection() const {
@@ -1435,7 +1438,7 @@ private:
     bool m_reset = false;
     qreal m_elevationScale{500.0};
     qreal m_brightness{1.0};
-    bool m_joinTiles{false};
+    bool m_joinTiles{true};
     bool m_tessellationDirection{0};
     quint64 m_numTriangles{0};
     quint64 m_allocatedGraphicsBytes{0};

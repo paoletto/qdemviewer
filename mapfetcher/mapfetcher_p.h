@@ -203,7 +203,7 @@ public:
 
     std::map<quint64, HeightmapCache> m_heightmapCache;
     std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
-    bool m_borders{false};
+    bool m_borders{true};
 };
 
 struct ASTCCompressedTextureData : public CompressedTextureData {

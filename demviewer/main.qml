@@ -834,7 +834,7 @@ QC2.ApplicationWindow {
                     interactor: arcball
                     demFetcher: demfetcher
                     rasterFetcher: mapFetcher
-                    joinTiles: joinTilesMenuItem.checked
+                    joinTiles: true //joinTilesMenuItem.checked
                     elevationScale: elevationSlider.value
                     brightness: brightnessSlider.value
                     tessellationDirection: invertTessDirection.checked
