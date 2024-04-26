@@ -69,6 +69,7 @@ protected:
 
     // Queries
     QSqlQuery m_queryCreation;
+    QSqlQuery m_queryIdx;
     QSqlQuery m_queryCreationMeta;
     QSqlQuery m_queryFetchData;
     QSqlQuery m_queryInsertData;

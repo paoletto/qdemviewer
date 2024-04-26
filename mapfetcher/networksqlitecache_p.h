@@ -97,6 +97,7 @@ protected:
 
     // Queries
     QSqlQuery m_queryCreation; // Used for creation. can't be prepared, since QtSql does not allow multiple statements with sqlite3
+    QSqlQuery m_queryIdx;
     QSqlQuery m_queryFetchData;
     QSqlQuery m_queryUpdateTs;
     QSqlQuery m_queryUpdateMetadata;
