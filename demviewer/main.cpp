@@ -1606,6 +1606,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
 int main(int argc, char *argv[])
 {    
     qInfo() << "demviewer starting ...";
+    bool windows = false;
 #if defined(Q_OS_LINUX)
     qputenv("QT_QPA_PLATFORMTHEME", QByteArrayLiteral("gtk3"));
 
@@ -1615,6 +1616,7 @@ int main(int argc, char *argv[])
     qputenv("QT_QUICK_CONTROLS_MATERIAL_PRIMARY", QByteArrayLiteral("#3d3d3d"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_ACCENT", QByteArrayLiteral("Red"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", QByteArrayLiteral("Dense")); // ToDo: add setting
+    windows = true;
 #endif
 //    qputenv("QT_DEBUG_PLUGINS", "1");
     QCoreApplication::setApplicationName(QStringLiteral("QDEMViewer"));
@@ -1674,6 +1676,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("arcball", arcball);
     engine.rootContext()->setContextProperty("mapFetcher", rasterFetcher);
     engine.rootContext()->setContextProperty("astcSupported", false);
+    engine.rootContext()->setContextProperty("windows", windows);
 
     const QUrl url(QStringLiteral("qrc:/main.qml"));
     QObject::connect(&engine, &QQmlApplicationEngine::objectCreated,

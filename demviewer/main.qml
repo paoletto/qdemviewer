@@ -27,6 +27,7 @@ import QtQuick.Dialogs 1.3 as QQD
 import QtPositioning 5.15
 import QtLocation 5.15
 import Qt.labs.settings 1.1
+import Qt.labs.platform 1.1
 import DemViewer 1.0
 
 QC2.ApplicationWindow {
@@ -114,6 +115,9 @@ QC2.ApplicationWindow {
             mapFetcher.forwardUncompressedTiles = false
 //                    Qt.binding(function() { return settings.forwardUncompressed })
             splitView.restoreState(settings.splitViewState)
+            if (windows) {
+                fileName = StandardPaths.writableLocation(StandardPaths.AppDataLocation) + "/demviewer.ini"
+            }
         }
         Component.onDestruction: settings.splitViewState = splitView.saveState()
     }
