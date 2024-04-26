@@ -1608,14 +1608,14 @@ int main(int argc, char *argv[])
     qInfo() << "demviewer starting ...";
 #if defined(Q_OS_LINUX)
     qputenv("QT_QPA_PLATFORMTHEME", QByteArrayLiteral("gtk3"));
-#endif
+
     qputenv("QT_QUICK_CONTROLS_STYLE", QByteArrayLiteral("Material"));
     qputenv("QT_STYLE_OVERRIDE", QByteArrayLiteral("Material"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_THEME", QByteArrayLiteral("Dark"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_PRIMARY", QByteArrayLiteral("#3d3d3d"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_ACCENT", QByteArrayLiteral("Red"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", QByteArrayLiteral("Dense")); // ToDo: add setting
-
+#endif
 //    qputenv("QT_DEBUG_PLUGINS", "1");
     QCoreApplication::setApplicationName(QStringLiteral("QDEMViewer"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("test"));
