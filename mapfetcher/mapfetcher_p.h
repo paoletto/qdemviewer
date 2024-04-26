@@ -90,6 +90,16 @@ private slots:
 friend class ThreadedJobQueue;
 };
 
+struct LoopedThread : public QThread {
+    LoopedThread(QObject *parent = nullptr) : QThread(parent) {}
+    ~LoopedThread() override = default;
+
+    void run() override {
+        QThread::setTerminationEnabled(true);
+        exec();
+    }
+};
+
 class ThreadedJobQueue: public QObject
 {
 Q_OBJECT
@@ -530,15 +540,6 @@ protected:
     std::unordered_map<ASTCFetcher *, ASTCFetcherWorker *> m_astcFetcher2Worker;
 };
 
-struct LoopedThread : public QThread {
-    LoopedThread(QObject *parent = nullptr) : QThread(parent) {}
-    ~LoopedThread() override = default;
-
-    void run() override {
-        exec();
-    }
-};
-
 class NetworkManager
 {
 public:
@@ -656,6 +657,11 @@ public:
         QMetaObject::invokeMethod(m_manager.get(), "cachePath", Qt::BlockingQueuedConnection
                                   , Q_RETURN_ARG(QString, path));
         return path;
+    }
+
+    ~NetworkManager() {
+        m_thread.quit();
+        m_thread.wait();
     }
 
 private:

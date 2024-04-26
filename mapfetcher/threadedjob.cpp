@@ -134,13 +134,20 @@ ThreadedJobQueue::ThreadedJobQueue(size_t numThread, QObject *parent): QObject(p
 {
     m_threads.resize(numThread);
     for (size_t i = 0; i < numThread; ++i) {
-        m_threads[i] = new QThread;
+        m_threads[i] = new LoopedThread;
         m_threads[i]->setObjectName("ThreadedJobQueue " + objectName() + " Thread " + QString::number(i));
         m_currentJobs[m_threads[i]] = nullptr;
     }
 }
 
-ThreadedJobQueue::~ThreadedJobQueue() {}
+ThreadedJobQueue::~ThreadedJobQueue() {
+    for (size_t i = 0; i < m_threads.size(); ++i) {
+        m_threads[i]->quit();
+    }
+    for (size_t i = 0; i < m_threads.size(); ++i) {
+        m_threads[i]->wait();
+    }
+}
 
 QThread *ThreadedJobQueue::findIdle()
 {
