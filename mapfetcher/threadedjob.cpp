@@ -147,6 +147,9 @@ ThreadedJobQueue::~ThreadedJobQueue() {
     for (size_t i = 0; i < m_threads.size(); ++i) {
         m_threads[i]->wait();
     }
+    for (size_t i = 0; i < m_threads.size(); ++i) {
+        m_threads[i]->terminate();
+    }
 }
 
 QThread *ThreadedJobQueue::findIdle()

@@ -662,6 +662,7 @@ public:
     ~NetworkManager() {
         m_thread.quit();
         m_thread.wait();
+        m_thread.terminate();
     }
 
 private:

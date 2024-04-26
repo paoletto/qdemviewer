@@ -479,11 +479,13 @@ private:
     QDoubleMatrix4x4 m_current;
 };
 
+class TileRenderer;
 struct Tile
 {
     Tile(const TileKey k,
-         const QSize resolution)
-        : m_key(k), m_resolution(resolution)
+         const QSize resolution,
+         TileRenderer &renderer)
+        : m_key(k), m_resolution(resolution), m_renderer(renderer)
     {
     }
 
@@ -544,32 +546,7 @@ struct Tile
         QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao); // creates it when bound the first time
     }
 
-    QSharedPointer<QOpenGLTexture> demTexture() {
-        if (!m_dem.size().isEmpty() /*&& !m_texDem*/) {
-            Heightmap &h = m_dem;
-            m_hasBorders = h.m_hasBorders;
-
-            int maxHSize = std::max(h.m_size.width(), h.m_size.height());
-            if (m_maxTexSize && maxHSize > m_maxTexSize) {
-                h.rescale(m_maxTexSize);
-                // h.rescale(QSize(32,32));
-                m_resolution = h.size();
-            }
-
-            if (!m_texDem || QSize(m_texDem->width(), m_texDem->height()) != h.m_size) {
-                m_texDem.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-                m_texDem->setFormat(QOpenGLTexture::R32F);
-                m_texDem->setSize(h.m_size.width(), h.m_size.height());
-                m_texDem->allocateStorage(QOpenGLTexture::Red, QOpenGLTexture::Float32);
-            }
-            m_texDem->setData(QOpenGLTexture::Red,
-                              QOpenGLTexture::Float32,
-                              (const void *) &(h.elevations.front()));
-
-            m_dem = Heightmap();
-        }
-        return m_texDem;
-    }
+    QSharedPointer<QOpenGLTexture> demTexture();
 
     QSharedPointer<QOpenGLTexture> mapTexture()
     {
@@ -602,153 +579,7 @@ struct Tile
               bool joinTiles,
               bool autoStride,
               int downsamplingRate,
-              bool geoReferenced)
-    {
-        QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
-
-        if (!m_shader) {            
-            f->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_maxTexSize);
-            f->glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &m_maxTexLayers);
-
-            m_shader = new QOpenGLShaderProgram;
-            m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                              QByteArray(vertexShaderTile));
-            m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                              QByteArray(fragmentShaderTile));
-            m_shader->link();
-            m_shader->setObjectName("shader");
-
-            m_shaderTextured = new QOpenGLShaderProgram;
-            m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                              QByteArray(vertexShaderTile));
-            m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                              QByteArray(fragmentShaderTileTextured));
-            m_shaderTextured->link();
-            m_shaderTextured->setObjectName("shaderTextured");
-
-            m_shaderJoinedDownsampledTextured = new QOpenGLShaderProgram;
-            // Create shaders
-            m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                              QByteArray(vertexShaderTileJoinedDownsampled));
-            m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                              QByteArray(fragmentShaderTileTextured));
-            m_shaderJoinedDownsampledTextured->link();
-            m_shaderJoinedDownsampledTextured->setObjectName("shaderJoinedDownsampledTextured");
-
-            m_shaderJoinedDownsampledTextureArrayd = new QOpenGLShaderProgram;
-            // Create shaders
-            m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                              QByteArray(vertexShaderTileJoinedDownsampled));
-            m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                              QByteArray(fragmentShaderTileTextureArrayd));
-            m_shaderJoinedDownsampledTextureArrayd->link();
-            m_shaderJoinedDownsampledTextureArrayd->setObjectName("shaderJoinedDownsampledTextureArrayd");
-
-            m_texWhite.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-            m_texWhite->setMaximumAnisotropy(16);
-            m_texWhite->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                                         QOpenGLTexture::Linear);
-            m_texWhite->setWrapMode(QOpenGLTexture::ClampToEdge);
-            QImage white(2,2,QImage::Format_RGB888);
-            white.setPixelColor(0,0, QColorConstants::White);
-            white.setPixelColor(0,1, QColorConstants::White);
-            white.setPixelColor(1,0, QColorConstants::White);
-            white.setPixelColor(1,1, QColorConstants::White);
-            m_texWhite->setData(white);
-        }
-        if (!m_shader) {
-            qWarning() << "Failed creating shader!";
-            return;
-        }
-        if (m_resolution.isEmpty())
-            return; // skip drawing the tile
-
-        double totalTiles = 1 << m_key.z;
-        QDoubleMatrix4x4 tileMatrix;
-        if (geoReferenced)
-            tileMatrix = tileTransformationMercator();
-        else
-            tileMatrix = tileTransformation(origin);
-
-        const QDoubleMatrix4x4 dm = transformation * tileMatrix;
-        const QMatrix4x4 m = toMatrix4x4(dm);
-        auto rasterTxt = mapTexture();
-        auto demTxt = demTexture();
-#if 1
-        const float tileSize = screenSpaceTileSize(dm);
-
-        if (tileSize < 0)
-            return; // TODO: improve
-
-        const float tileSizePixels = tileSize * viewportSize.width() * .5;
-        const double tileSizeOnScreen = (1 << qMax<int>(0, int(floor(log2(tileSizePixels)))));
-
-        const double tileInnerSamples = (demTxt) ? demTxt->width() - 2 : 256.;
-        int idealRate = qMax<int>(1, tileInnerSamples / tileSizeOnScreen);
-#else
-        int idealRate = 16;
-#endif
-
-        // TODO: streamline, fix, deduplicate
-        QOpenGLShaderProgram *shader = (rasterTxt) ? m_shaderTextured
-                                                   : m_shader;
-        if (interactive && joinTiles) {
-            if (rasterTxt && rasterTxt->layers() > 1)
-                shader = m_shaderJoinedDownsampledTextureArrayd;
-            else
-                shader = m_shaderJoinedDownsampledTextured;
-        }
-
-        QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
-        ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
-
-        shader->bind();
-        f->glEnable(GL_TEXTURE_2D);
-        if (rasterTxt)  {
-            rasterTxt->bind();
-        } else {
-            m_texWhite->bind();
-        }
-
-        int stride = (interactive) ?
-                        qBound<int>(1 ,
-                               autoStride ? qMax(downsamplingRate, idealRate) : downsamplingRate,
-                               tileInnerSamples)
-                        : 1;
-
-        auto resolution = m_resolution;
-        if (joinTiles && interactive)
-            resolution -= QSize(2,2);
-        resolution /= stride;
-        shader->setUniformValue("resolution", resolution);
-
-        constexpr const double reciprocalCircumference = 1. / 40075017.;
-        // This brings the map inside the [0,1] range, which maps to the whole earth diameter
-        // TODO: use map pixel size in meters from the actual spot (tile center?)
-        elevationScale *= reciprocalCircumference;
-        elevationScale *= totalTiles;
-
-        shader->setUniformValue("elevationScale", elevationScale);
-        shader->setUniformValue("matrix", m);
-        shader->setUniformValue("color", QColor(255,255,255,255));
-        shader->setUniformValue("samplingStride", stride);
-        shader->setUniformValue("brightness", (rasterTxt) ? brightness : 1.0f );
-        shader->setUniformValue("quadSplitDirection", tessellationDirection);
-        shader->setUniformValue("lightDirection", lightDirection);
-        shader->setUniformValue("cOff", (joinTiles && !interactive) ? -0.5f: 0.5f);
-        shader->setUniformValue("joined", int(joinTiles));
-        shader->setUniformValue("numSubtiles", int((!rasterTxt) ? 1 : rasterTxt->layers()));
-
-        QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
-        const int numVertices = totVertices(joinTiles, stride);
-
-        f->glDrawArrays(GL_TRIANGLES, 0, numVertices);
-        shader->release();
-        if (rasterTxt)
-            rasterTxt->release();
-        else
-            m_texWhite->release();
-    }
+              bool geoReferenced);
 
     inline int totVertices(bool joinTiles, int stride = 1) const {
         const int toSubtract = (joinTiles && stride > 1) ? 2 : 0;
@@ -817,21 +648,8 @@ struct Tile
     std::shared_ptr<Tile> m_bottom;
     std::shared_ptr<Tile> m_bottomRight;
 
-    static GLint m_maxTexSize;
-    static GLint m_maxTexLayers;
-    static QOpenGLShaderProgram *m_shader;
-    static QOpenGLShaderProgram *m_shaderTextured;
-    static QOpenGLShaderProgram *m_shaderJoinedDownsampledTextured;
-    static QOpenGLShaderProgram *m_shaderJoinedDownsampledTextureArrayd;
-    static QScopedPointer<QOpenGLTexture> m_texWhite;
+    TileRenderer &m_renderer;
 };
-QOpenGLShaderProgram *Tile::m_shader{nullptr};
-QOpenGLShaderProgram *Tile::m_shaderTextured{nullptr};
-QOpenGLShaderProgram *Tile::m_shaderJoinedDownsampledTextured{nullptr};
-QOpenGLShaderProgram *Tile::m_shaderJoinedDownsampledTextureArrayd{nullptr};
-QScopedPointer<QOpenGLTexture> Tile::m_texWhite;
-GLint Tile::m_maxTexSize{0};
-GLint Tile::m_maxTexLayers{0};
 
 QDebug operator<<(QDebug d, const  Tile &t) {
         QDebug nsp = d.nospace();
@@ -841,6 +659,15 @@ QDebug operator<<(QDebug d, const  Tile &t) {
 
 class TileRenderer : public QQuickFramebufferObject::Renderer
 {
+protected:
+    GLint m_maxTexSize{0};
+    GLint m_maxTexLayers{0};
+    QScopedPointer<QOpenGLShaderProgram> m_shader;
+    QScopedPointer<QOpenGLShaderProgram> m_shaderTextured;
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextured;
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextureArrayd;
+    QScopedPointer<QOpenGLTexture> m_texWhite;
+
 public:
     QOpenGLFramebufferObject *createFramebufferObject(const QSize &size) override {
         return createFbo(size);
@@ -848,7 +675,7 @@ public:
 
     void addTile(const TileKey k,
                  const QSize resolution) {
-        std::shared_ptr<Tile> t = std::make_shared<Tile>(k, resolution);
+        std::shared_ptr<Tile> t = std::make_shared<Tile>(k, resolution, *this);
         if (m_tiles.find(k) != m_tiles.end())
             return;
         m_tiles.insert({k, std::move(t)});
@@ -1072,6 +899,8 @@ protected:
     QDoubleVector3D m_centerOffset;
     std::map<TileKey, std::shared_ptr<Tile>> m_tiles {};
     // TODO use a state struct
+
+friend class Tile;
 };
 
 class TerrainViewer : public QQuickFramebufferObject
@@ -1317,7 +1146,6 @@ public:
         emit geoReferencedChanged();
     }
 
-
     bool autoRefinement() const {
         return m_autoRefinement;
     }
@@ -1537,6 +1365,192 @@ public:
     const QGeoProjectionWebMercatorPublic &m_wm;
 };
 
+QSharedPointer<QOpenGLTexture> Tile::demTexture() {
+    if (!m_dem.size().isEmpty() /*&& !m_texDem*/) {
+        Heightmap &h = m_dem;
+        m_hasBorders = h.m_hasBorders;
+
+        int maxHSize = std::max(h.m_size.width(), h.m_size.height());
+        if (m_renderer.m_maxTexSize && maxHSize > m_renderer.m_maxTexSize) {
+            h.rescale(m_renderer.m_maxTexSize);
+            // h.rescale(QSize(32,32));
+            m_resolution = h.size();
+        }
+
+        if (!m_texDem || QSize(m_texDem->width(), m_texDem->height()) != h.m_size) {
+            m_texDem.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+            m_texDem->setFormat(QOpenGLTexture::R32F);
+            m_texDem->setSize(h.m_size.width(), h.m_size.height());
+            m_texDem->allocateStorage(QOpenGLTexture::Red, QOpenGLTexture::Float32);
+        }
+        m_texDem->setData(QOpenGLTexture::Red,
+                          QOpenGLTexture::Float32,
+                          (const void *) &(h.elevations.front()));
+
+        m_dem = Heightmap();
+    }
+    return m_texDem;
+}
+
+void Tile::draw(const QDoubleMatrix4x4 &transformation,
+          const Tile& origin,
+          const QSize viewportSize,
+          float elevationScale,
+          const float brightness,
+          const int tessellationDirection,
+          const QVector3D &lightDirection,
+          bool interactive,
+          bool joinTiles,
+          bool autoStride,
+          int downsamplingRate,
+          bool geoReferenced)
+{
+    QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
+
+    if (!m_renderer.m_shader) {
+        f->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_renderer.m_maxTexSize);
+        f->glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &m_renderer.m_maxTexLayers);
+
+        m_renderer.m_shader.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          QByteArray(vertexShaderTile));
+        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTile));
+        m_renderer.m_shader->link();
+        m_renderer.m_shader->setObjectName("shader");
+
+        m_renderer.m_shaderTextured.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          QByteArray(vertexShaderTile));
+        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextured));
+        m_renderer.m_shaderTextured->link();
+        m_renderer.m_shaderTextured->setObjectName("shaderTextured");
+
+        m_renderer.m_shaderJoinedDownsampledTextured.reset(new QOpenGLShaderProgram);
+        // Create shaders
+        m_renderer.m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          QByteArray(vertexShaderTileJoinedDownsampled));
+        m_renderer.m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextured));
+        m_renderer.m_shaderJoinedDownsampledTextured->link();
+        m_renderer.m_shaderJoinedDownsampledTextured->setObjectName("shaderJoinedDownsampledTextured");
+
+        m_renderer.m_shaderJoinedDownsampledTextureArrayd.reset(new QOpenGLShaderProgram);
+        // Create shaders
+        m_renderer.m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          QByteArray(vertexShaderTileJoinedDownsampled));
+        m_renderer.m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextureArrayd));
+        m_renderer.m_shaderJoinedDownsampledTextureArrayd->link();
+        m_renderer.m_shaderJoinedDownsampledTextureArrayd->setObjectName("shaderJoinedDownsampledTextureArrayd");
+
+        m_renderer.m_texWhite.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+        m_renderer.m_texWhite->setMaximumAnisotropy(16);
+        m_renderer.m_texWhite->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
+                                     QOpenGLTexture::Linear);
+        m_renderer.m_texWhite->setWrapMode(QOpenGLTexture::ClampToEdge);
+        QImage white(2,2,QImage::Format_RGB888);
+        white.setPixelColor(0,0, QColorConstants::White);
+        white.setPixelColor(0,1, QColorConstants::White);
+        white.setPixelColor(1,0, QColorConstants::White);
+        white.setPixelColor(1,1, QColorConstants::White);
+        m_renderer.m_texWhite->setData(white);
+    }
+    if (!m_renderer.m_shader) {
+        qWarning() << "Failed creating shader!";
+        return;
+    }
+    if (m_resolution.isEmpty())
+        return; // skip drawing the tile
+
+    double totalTiles = 1 << m_key.z;
+    QDoubleMatrix4x4 tileMatrix;
+    if (geoReferenced)
+        tileMatrix = tileTransformationMercator();
+    else
+        tileMatrix = tileTransformation(origin);
+
+    const QDoubleMatrix4x4 dm = transformation * tileMatrix;
+    const QMatrix4x4 m = toMatrix4x4(dm);
+    auto rasterTxt = mapTexture();
+    auto demTxt = demTexture();
+#if 1
+    const float tileSize = screenSpaceTileSize(dm);
+
+    if (tileSize < 0)
+        return; // TODO: improve
+
+    const float tileSizePixels = tileSize * viewportSize.width() * .5;
+    const double tileSizeOnScreen = (1 << qMax<int>(0, int(floor(log2(tileSizePixels)))));
+
+    const double tileInnerSamples = (demTxt) ? demTxt->width() - 2 : 256.;
+    int idealRate = qMax<int>(1, tileInnerSamples / tileSizeOnScreen);
+#else
+    int idealRate = 16;
+#endif
+
+    // TODO: streamline, fix, deduplicate
+    QOpenGLShaderProgram *shader = (rasterTxt) ? m_renderer.m_shaderTextured.get()
+                                               : m_renderer.m_shader.get();
+    if (interactive && joinTiles) {
+        if (rasterTxt && rasterTxt->layers() > 1)
+            shader = m_renderer.m_shaderJoinedDownsampledTextureArrayd.get();
+        else
+            shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
+    }
+
+    QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
+    ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
+
+    shader->bind();
+    f->glEnable(GL_TEXTURE_2D);
+    if (rasterTxt)  {
+        rasterTxt->bind();
+    } else {
+        m_renderer.m_texWhite->bind();
+    }
+
+    int stride = (interactive) ?
+                    qBound<int>(1 ,
+                           autoStride ? qMax(downsamplingRate, idealRate) : downsamplingRate,
+                           tileInnerSamples)
+                    : 1;
+
+    auto resolution = m_resolution;
+    if (joinTiles && interactive)
+        resolution -= QSize(2,2);
+    resolution /= stride;
+    shader->setUniformValue("resolution", resolution);
+
+    constexpr const double reciprocalCircumference = 1. / 40075017.;
+    // This brings the map inside the [0,1] range, which maps to the whole earth diameter
+    // TODO: use map pixel size in meters from the actual spot (tile center?)
+    elevationScale *= reciprocalCircumference;
+    elevationScale *= totalTiles;
+
+    shader->setUniformValue("elevationScale", elevationScale);
+    shader->setUniformValue("matrix", m);
+    shader->setUniformValue("color", QColor(255,255,255,255));
+    shader->setUniformValue("samplingStride", stride);
+    shader->setUniformValue("brightness", (rasterTxt) ? brightness : 1.0f );
+    shader->setUniformValue("quadSplitDirection", tessellationDirection);
+    shader->setUniformValue("lightDirection", lightDirection);
+    shader->setUniformValue("cOff", (joinTiles && !interactive) ? -0.5f: 0.5f);
+    shader->setUniformValue("joined", int(joinTiles));
+    shader->setUniformValue("numSubtiles", int((!rasterTxt) ? 1 : rasterTxt->layers()));
+
+    QOpenGLVertexArrayObject::Binder vaoBinder(&datalessVao);
+    const int numVertices = totVertices(joinTiles, stride);
+
+    f->glDrawArrays(GL_TRIANGLES, 0, numVertices);
+    shader->release();
+    if (rasterTxt)
+        rasterTxt->release();
+    else
+        m_renderer.m_texWhite->release();
+}
+
 void TileRenderer::synchronize(QQuickFramebufferObject *item)
 {
     QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
@@ -1553,7 +1567,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
     }
 
     if (viewer) {
-            bool reset = viewer->m_reset;
+        bool reset = viewer->m_reset;
         viewer->m_reset = false;
 
         m_elevationScale = viewer->m_elevationScale;
