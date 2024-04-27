@@ -121,6 +121,7 @@ QC2.ApplicationWindow {
         }
         Component.onDestruction: settings.splitViewState = splitView.saveState()
     }
+    property color textColor: (windows) ? "black" : "white"
 
     menuBar: QC2.MenuBar {
         QC2.Menu {
@@ -318,7 +319,7 @@ QC2.ApplicationWindow {
                 width: parent.width
                 Text {
                     text: "Decimation"
-                    color: "white"
+                    color: root.textColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.leftMargin: 2
                 }
@@ -346,7 +347,7 @@ QC2.ApplicationWindow {
                 width: parent.width
                 Text {
                     text: "Bri"
-                    color: "white"
+                    color: root.textColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.leftMargin: 2
                 }
@@ -371,7 +372,7 @@ QC2.ApplicationWindow {
                 width: parent.width
                 Text {
                     text: "α"
-                    color: "white"
+                    color: root.textColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.leftMargin: 2
                 }
@@ -396,7 +397,7 @@ QC2.ApplicationWindow {
                 width: parent.width
                 Text {
                     text: "DEM Coalescing"
-                    color: "white"
+                    color: root.textColor
                     Layout.alignment: Qt.AlignVCenter
                     Layout.leftMargin: 2
                     MouseArea {
@@ -442,7 +443,7 @@ QC2.ApplicationWindow {
                 Text {
                     Layout.alignment: Qt.AlignHCenter
                     text: "Light direction"
-                    color: "white"
+                    color: root.textColor
                 }
 
                 Rectangle {
@@ -965,12 +966,12 @@ QC2.ApplicationWindow {
                     Text {
                         Layout.preferredWidth: addProviderDialog.width * .45
                         text: "Name"
-                        color: "white"
+                        color: root.textColor
                     }
                     Text {
                         Layout.preferredWidth: addProviderDialog.width * .45
                         text: "URL Template"
-                        color: "white"
+                        color: root.textColor
                     }
                 }
 
