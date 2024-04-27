@@ -1620,7 +1620,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
 int main(int argc, char *argv[])
 {    
     qInfo() << "demviewer starting ...";
-    bool windows = false;
+    bool windows = true;
 #if defined(Q_OS_LINUX)
     qputenv("QT_QPA_PLATFORMTHEME", QByteArrayLiteral("gtk3"));
 
@@ -1630,7 +1630,7 @@ int main(int argc, char *argv[])
     qputenv("QT_QUICK_CONTROLS_MATERIAL_PRIMARY", QByteArrayLiteral("#3d3d3d"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_ACCENT", QByteArrayLiteral("Red"));
     qputenv("QT_QUICK_CONTROLS_MATERIAL_VARIANT", QByteArrayLiteral("Dense")); // ToDo: add setting
-    windows = true;
+    windows = false;
 #endif
 //    qputenv("QT_DEBUG_PLUGINS", "1");
     QCoreApplication::setApplicationName(QStringLiteral("QDEMViewer"));
