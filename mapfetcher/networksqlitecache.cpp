@@ -103,13 +103,16 @@ CREATE INDEX IF NOT EXISTS idxLastAccess ON Document(lastAccess);
     bool res =   m_queryCreation.exec(QLatin1String(schema));
     if (!res)
         qWarning() << "Failed to create Document table"  << m_queryCreation.lastError() <<  __FILE__ << __LINE__;
+    m_queryCreation.finish();
+    m_diskCache.commit();
 
     m_queryIdx = QSqlQuery(m_diskCache);
     m_queryIdx.setForwardOnly(true);
     res =   m_queryIdx.exec(QLatin1String(tsindex));
     if (!res)
         qWarning() << "Failed to create idxLastAccess"  << m_queryIdx.lastError() <<  __FILE__ << __LINE__;
-
+    m_queryIdx.finish();
+    m_diskCache.commit();
 
     m_queryFetchData = QSqlQuery(m_diskCache);
     m_queryFetchData.setForwardOnly(true);
