@@ -111,11 +111,11 @@ WHERE ts > :clientmaxts
 ORDER BY ts ASC
 )";
 
-
         Query querySyncOff{"PRAGMA synchronous = OFF",
                     {},
                     "",
                     1};
+
         Query queryJournalOff{"PRAGMA journal_mode = OFF",
                     {},
                     "",
@@ -124,7 +124,6 @@ ORDER BY ts ASC
         // disable sync from local cache
         auto res = SQLiteManager::instance().sqliteSelect(querySyncOff.toMap());
         res = SQLiteManager::instance().sqliteSelect(queryJournalOff.toMap());
-
 
         static constexpr char clientQuery[] = R"(
 SELECT MAX(ts) from Tile
@@ -147,12 +146,8 @@ SELECT MAX(ts) from Tile
                     "",
                     42};
 
-
         client->submitSelect(querySyncOff);
         client->submitSelect(queryJournalOff);
-
-
-//        qDebug() << "submitting query "<<query.query;
         client->submitSelectProgressive(query);
     }
 
@@ -165,19 +160,12 @@ SELECT MAX(ts) from Tile
             return;
         }
 
-
         static constexpr char queryString[] = R"(
 SELECT url, metadata, data, lastAccess
 FROM Document
 WHERE lastAccess > :clientmaxlastaccess
 ORDER BY lastAccess ASC
 )";
-
-//        static constexpr char queryString[] = R"(
-//SELECT count(*)
-//FROM Document
-//WHERE lastAccess > :clientmaxlastaccess
-//)";
 
         Query querySyncOff{"PRAGMA synchronous = OFF",
                     {},
@@ -191,7 +179,6 @@ ORDER BY lastAccess ASC
         // disable sync from local cache
         auto res = SQLiteManager::instance().sqliteSelect(querySyncOff.toMap());
         res = SQLiteManager::instance().sqliteSelect(queryJournalOff.toMap());
-
 
         static constexpr char clientQuery[] = R"(
 SELECT MAX(lastAccess) from Document
@@ -217,9 +204,6 @@ SELECT MAX(lastAccess) from Document
 
         client->submitSelect(querySyncOff);
         client->submitSelect(queryJournalOff);
-
-
-//        qDebug() << "submitting query "<<query.query;
         client->submitSelectProgressive(query);
     }
 
@@ -228,8 +212,8 @@ public slots:
     void onError(QString error) {
         qWarning() << error;
     }
-    void onQueryFinished(const QVariantMap result) {
-
+    void onQueryFinished(const QVariantMap) {
+        // TODO
     }
     void onInitialized() {
         m_initialized = true;
@@ -246,7 +230,6 @@ public slots:
 
     void onNetworkRowReceived(const QVariantMap data) {
         const auto row = data["row"].toMap();
-//        qDebug() << row["url"] << row["lastAccess"];
         static constexpr char insertQuery[] = R"(
 INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, :url, :lastaccess)
 )";
@@ -260,10 +243,35 @@ INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, 
         auto res = SQLiteManager::instance().sqliteSelect(insertq);
         if (res["error"].isNull())
             return;
-        qInfo() << res;
+        qWarning() << "onNetworkRowReceived: " << res["error"];
     }
     void onASTCRowReceived(const QVariantMap data) {
-        qDebug() << data;
+        const auto row = data["row"].toMap();
+
+        static constexpr char insertQuery[] = R"(
+INSERT INTO Tile(tileHash, blockX, blockY, quality, width, height, tile, ts, x, y, z)
+VALUES (:tileHash, :blockX, :blockY, :quality, :width, :height, :tile, :ts, :x, :y, :z)
+)";
+        Query insertq{insertQuery,
+                    QVariantMap{{":tileHash", row["tileHash"]},
+                                {":blockX", row["blockX"]},
+                                {":blockY", row["blockY"]},
+                                {":quality", row["quality"]},
+                                {":width", row["width"]},
+                                {":height", row["height"]},
+                                {":tile", row["tile"]},
+                                {":ts", row["ts"]},
+                                {":x", row["x"]},
+                                {":y", row["y"]},
+                                {":z", row["z"]}},
+                                "",
+                                321};
+
+        auto res = SQLiteManager::instance().sqliteSelect(insertq.toMap());
+        if (res["error"].isNull())
+            return;
+
+        qWarning() << "onASTCRowReceived: " << res["error"];
     }
 
 public:
@@ -273,16 +281,14 @@ public:
     QDateTime m_timestamp;
 };
 
-
-
 int main(int argc, char *argv[])
 {
     QCoreApplication app(argc, argv);
-    QCoreApplication::setApplicationName("Map Updater");
+    QCoreApplication::setApplicationName("MapFetcher Cache Updater");
     QCoreApplication::setApplicationVersion("1.0");
 
     QCommandLineParser parser;
-    parser.setApplicationDescription("Map Updater");
+    parser.setApplicationDescription("MapFetcher Cache Updater");
     parser.addHelpOption();
     parser.addVersionOption();
 
@@ -315,11 +321,9 @@ int main(int argc, char *argv[])
     // Process the actual command line arguments given by the user
     parser.process(app);
 
-    bool serve = parser.isSet(serverOption);
-
-
-    QString astcCachePath = parser.value(astcCacheOption);
-    QString networkCachePath = parser.value(nwCacheOption);
+    const bool serve = parser.isSet(serverOption);
+    const QString astcCachePath = parser.value(astcCacheOption);
+    const QString networkCachePath = parser.value(nwCacheOption);
 
     QFileInfo fiAstcCache(astcCachePath);
     QFileInfo fiNetworkCache(networkCachePath);

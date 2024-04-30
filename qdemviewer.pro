@@ -4,13 +4,13 @@ SUBDIRS = \
         mapfetcher \
         demviewer \
         astcencoder \
-        mapupdater
+        cacheupdater
 
 OTHER_FILES += \
     mapfetcher/mapfetcher.pro \
     demviewer/demviewer.pro\
     astcencoder/astcencoder.pro\
-    mapupdater/mapupdater.pro\
+    cacheupdater/cacheupdater.pro\
     arch_helper.pri\
     LICENSE\
     README.md

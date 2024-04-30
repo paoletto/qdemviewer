@@ -53,7 +53,7 @@ struct Query {
     Query() = default;
     Query(const QString &query_,
           const QVariantMap &args_,
-          const QString &key_,  // ToDo rename in nestingKey
+          const QString &key_,  // TODO: rename into nestingKey
           const QVariant &query_id);
     Query(const QVariantMap &m, bool nested = false);
     QString query; // SELECT ...
