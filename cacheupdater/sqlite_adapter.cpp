@@ -195,6 +195,9 @@ void SqliteAdapter::sqliteSelectProgressive(const QVariantMap data)
         rowData["row_cnt"] = res.size();
         rowData["query_id"] = queryId;
         emit row(rowData);
+        if (i > 0 && !(i % 1000)) {
+            qInfo() << "emitted row "<<i<< "/"<<res.size();
+        }
     }
 }
 
