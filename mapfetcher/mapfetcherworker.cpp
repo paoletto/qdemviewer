@@ -88,7 +88,6 @@ const std::map<Heightmap::Neighbor, std::shared_ptr<QImage>> boundaryRasters{
     {Heightmap::BottomRight, {}}
 };
 const QString urlTemplateTerrariumS3{"https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"};
-//const quint64 tileSize{256};
 } // namespace
 
 namespace  {
@@ -121,12 +120,6 @@ const std::map<Heightmap::Neighbor, Heightmap::Neighbor> neighborReciprocal = {
         {Heightmap::BottomLeft, Heightmap::TopRight},
         {Heightmap::BottomRight, Heightmap::TopLeft}
 };
-//quint64 getX(const TileData& d) {
-//    return d.k.x;
-//}
-//quint64 getY(const TileData& d) {
-//    return d.k.y;
-//}
 quint64 getX(const QGeoTileSpec& d) {
     return quint64(d.x());
 }
@@ -320,21 +313,13 @@ public:
 private:
     QString m_cacheDirPath;
     QNetworkAccessManager m_nm;
-//    QNetworkDiskCache m_networkCache;
-//    NetworkInMemoryCache m_networkCache;
     NetworkSqliteCache m_networkCache;
 
 
     NAM()
 :  m_cacheDirPath(QStringLiteral("%1/networkCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)))
-//   m_cacheDirPath(QStringLiteral("/tmp/networkCache.sqlite"))
   ,m_networkCache(m_cacheDirPath) {
         ;
-//        m_networkCache.setCacheDirectory(m_cacheDirPath);
-//        m_networkCache.setMaximumCacheSize(qint64(5)
-//                                          * qint64(1024)
-//                                          * qint64(1024)
-//                                          * qint64(1024)); // TODO: make configurable
         m_nm.setCache(&m_networkCache);
     }
 
@@ -459,8 +444,6 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
     if (destError && onErrorSlot)
         connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), destError, onErrorSlot);
     connect(reply, &QNetworkReply::finished, this, &ThrottledNetworkFetcher::onFinished);
-//    connect(reply, &QNetworkReply::destroyed,
-//            this, &ThrottledNetworkFetcher::onFinished, Qt::QueuedConnection);
     ++m_active;
 }
 
@@ -1199,10 +1182,9 @@ void ASTCFetcherWorker::onInsertTileASTC(quint64 id,
     Q_D(ASTCFetcherWorker);
     emit tileASTCReady(id, k, std::move(h));
     if (!--d->m_request2remainingASTCHandlers[id]) {
-//        emit requestHandlingFinished(id); // it's somewhat involved to avoid emitting this signal
-                                            // in mapfetcherworker. So emit it only there, as this
-                                            // astc tile will eventually be produced
-        emit requestHandlingFinished(id);
+        emit requestHandlingFinished(id); // it's somewhat involved to avoid emitting this signal
+                                          // in mapfetcherworker. So emit it only there, as this
+                                          // astc tile will eventually be produced
     }
 }
 

@@ -67,9 +67,6 @@ template <class T>
 void hash_combine(std::size_t& seed, const T& v) {
     seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 }
-//bool isPowerOf2(size_t x) {
-//    return (x & (x - 1)) == 0;
-//}
 }
 
 namespace std {

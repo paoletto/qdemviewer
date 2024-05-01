@@ -234,7 +234,6 @@ void ThreadedJob::move2thread(QThread &t) {
         }
     };
     moveChildren2Thread(this);
-//    connect(this, &ThreadedJob::finished, &t, &QThread::quit);
 }
 
 TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
@@ -242,14 +241,6 @@ TileReplyHandler::TileReplyHandler(QNetworkReply *reply,
     : m_reply(reply), m_mapFetcher(&mapFetcher)
 {
     reply->setParent(this);
-//    connect(this,
-//            SIGNAL(insertTile(quint64,TileKey,std::shared_ptr<QImage>)),
-//            &mapFetcher,
-//            SLOT(onInsertTile(quint64,TileKey,std::shared_ptr<QImage>)), Qt::QueuedConnection);
-//    connect(this,
-//            SIGNAL(insertCoverage(quint64,std::shared_ptr<QImage>)),
-//            &mapFetcher,
-//            SLOT(onInsertCoverage(quint64,std::shared_ptr<QImage>)), Qt::QueuedConnection);
     connect(this, &TileReplyHandler::insertTile,
             &mapFetcher, &MapFetcherWorker::onInsertTile, Qt::QueuedConnection);
     connect(this, &TileReplyHandler::insertCompressedTileData,

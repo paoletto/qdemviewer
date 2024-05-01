@@ -182,10 +182,7 @@ bool CompoundTileCache::insert(const QString &tileBaseURL,
         res = m_queryInsertData.exec();
         if (!res) {
             ++count;
-            qDebug() << m_queryInsertData.lastError() << __FILE__ << __LINE__;
-//                     <<  m_queryInsertData.lastError().nativeErrorCode()
-//                     <<  m_queryInsertData.lastError().databaseText()
-//                     <<  m_queryInsertData.lastError().driverText() << __FILE__ << __LINE__;
+            qWarning() << m_queryInsertData.lastError() << __FILE__ << __LINE__;
             if (count >= 10) {
                 return false;
             }
