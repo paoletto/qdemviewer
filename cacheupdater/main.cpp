@@ -26,8 +26,7 @@
 #include <sqlite_adapter.h>
 
 namespace  {
-constexpr const quint16 port{1234};
-const QUrl serverUrl{QStringLiteral("tcp://:") + QString::number(port)};
+constexpr const quint16 defaultPort{1234};
 const QString serverObjectName{"dbserver"};
 }
 
@@ -35,9 +34,9 @@ class Server : public QObject
 {
 Q_OBJECT
 public:
-    Server(QObject *parent = nullptr)
+    Server(quint16 port = defaultPort, QObject *parent = nullptr)
     : QObject(parent) {
-        node.reset(new QRemoteObjectHost(serverUrl));
+        node.reset(new QRemoteObjectHost(QStringLiteral("tcp://:") + QString::number(port)));
         adapter.reset(new SqliteAdapter);
         adapter->setObjectName(serverObjectName);
         node->enableRemoting(adapter.get()); // enable remoting/sharing
@@ -67,6 +66,7 @@ public:
            bool network,
            QDateTime ts,
            QString dbPath,
+           quint16 port = defaultPort,
            QObject *parent = nullptr)
         : QObject(parent), m_network(network), m_timestamp(ts)
     {
@@ -296,6 +296,10 @@ int main(int argc, char *argv[])
     QCommandLineOption serverOption("l", "Listen to incoming request retrieving new data");
     parser.addOption(serverOption);
 
+    QCommandLineOption portOption(QStringList() << "p" << "port",
+                                    "Port to use for networking");
+    parser.addOption(portOption);
+
     QCommandLineOption hostOption("host", "Connect to host to pull data", "address");
     parser.addOption(hostOption);
 
@@ -346,6 +350,17 @@ int main(int argc, char *argv[])
         else
             qInfo() << "Connecting to "<<host;
     }
+    bool ok;
+    quint16 port = defaultPort;
+    if (parser.isSet(portOption)) {
+        qint64 oport = parser.value(portOption).toInt(&ok);
+        if (!ok || oport < 1 || oport > 65535) {
+            QString fatal = QStringLiteral("Failed to parse port ") + parser.value(portOption);
+            auto cfatal = fatal.toStdString();
+            qFatal(cfatal.c_str());
+        }
+        port = quint16(oport);
+    }
 
     QDateTime ts;
     QString timestamp = parser.value(dateOption);
@@ -374,9 +389,10 @@ int main(int argc, char *argv[])
                              &fiAstcCache,
                              &fiNetworkCache,
                              &networkCachePath,
-                             &host]() {
+                             &host,
+                             &port]() {
         if (serve) {
-            server.reset(new Server);
+            server.reset(new Server(port));
             server->serve(fiAstcCache.absoluteFilePath(), fiNetworkCache.absoluteFilePath());
         } else {
             client.reset(new Client(host,
@@ -384,7 +400,8 @@ int main(int argc, char *argv[])
                                     ts,
                                     (!networkCachePath.isEmpty())
                                         ? fiNetworkCache.absoluteFilePath()
-                                        : fiAstcCache.absoluteFilePath()
+                                        : fiAstcCache.absoluteFilePath(),
+                                    port
                                     ));
         }
     });
