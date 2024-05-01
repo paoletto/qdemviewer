@@ -229,6 +229,7 @@ public slots:
     }
 
     void onNetworkRowReceived(const QVariantMap data) {
+        static quint64 receivedNetworkRowsCount = 0;
         const auto row = data["row"].toMap();
         static constexpr char insertQuery[] = R"(
 INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, :url, :lastaccess)
@@ -241,13 +242,15 @@ INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, 
                             {"query_id" , 123}};
 
         auto res = SQLiteManager::instance().sqliteSelect(insertq);
-        if (res["error"].isNull())
-            return;
-        qWarning() << "onNetworkRowReceived: " << res["error"];
+        if (!res["error"].isNull())
+            qWarning() << "onNetworkRowReceived: " << res["error"];
+        if (!(++receivedNetworkRowsCount % 1000))
+            qInfo() << "onNetworkRowReceived "<< receivedNetworkRowsCount << " TS: "<<row["lastAccess"].toDateTime().toString();
     }
-    void onASTCRowReceived(const QVariantMap data) {
-        const auto row = data["row"].toMap();
 
+    void onASTCRowReceived(const QVariantMap data) {
+        static quint64 receivedASTCRowsCount = 0;
+        const auto row = data["row"].toMap();
         static constexpr char insertQuery[] = R"(
 INSERT INTO Tile(tileHash, blockX, blockY, quality, width, height, tile, ts, x, y, z)
 VALUES (:tileHash, :blockX, :blockY, :quality, :width, :height, :tile, :ts, :x, :y, :z)
@@ -268,10 +271,11 @@ VALUES (:tileHash, :blockX, :blockY, :quality, :width, :height, :tile, :ts, :x, 
                                 321};
 
         auto res = SQLiteManager::instance().sqliteSelect(insertq.toMap());
-        if (res["error"].isNull())
-            return;
+        if (!res["error"].isNull())
+            qWarning() << "onASTCRowReceived: " << res["error"];
+        if (!(++receivedASTCRowsCount % 1000))
+            qInfo() << "onASTCRowReceived "<< receivedASTCRowsCount << " TS: "<<row["ts"].toDateTime().toString();
 
-        qWarning() << "onASTCRowReceived: " << res["error"];
     }
 
 public:
