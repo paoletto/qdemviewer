@@ -105,7 +105,7 @@ public:
         }
 
         static constexpr char queryString[] = R"(
-SELECT tileHash, blockX, blockY, quality, width, height, tile, ts, x, y, z
+SELECT tileHash, blockX, blockY, quality, width, height, tile, ts, x, y, z, ROWID
 FROM Tile
 WHERE ts > :clientmaxts
 ORDER BY ts ASC
@@ -161,7 +161,7 @@ SELECT MAX(ts) from Tile
         }
 
         static constexpr char queryString[] = R"(
-SELECT url, metadata, data, lastAccess
+SELECT url, metadata, data, lastAccess, ROWID
 FROM Document
 WHERE lastAccess > :clientmaxlastaccess
 ORDER BY lastAccess ASC
@@ -245,7 +245,9 @@ INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, 
         if (!res["error"].isNull())
             qWarning() << "onNetworkRowReceived: " << res["error"];
         if (!(++receivedNetworkRowsCount % 1000))
-            qInfo() << "onNetworkRowReceived "<< receivedNetworkRowsCount << " TS: "<<row["lastAccess"].toDateTime().toString();
+            qInfo() << "onNetworkRowReceived "<< receivedNetworkRowsCount
+                            << " ROWID: "<< row["ROWID"]
+                            << " TS: "<<row["lastAccess"].toDateTime().toString();
     }
 
     void onASTCRowReceived(const QVariantMap data) {
@@ -274,7 +276,9 @@ VALUES (:tileHash, :blockX, :blockY, :quality, :width, :height, :tile, :ts, :x, 
         if (!res["error"].isNull())
             qWarning() << "onASTCRowReceived: " << res["error"];
         if (!(++receivedASTCRowsCount % 1000))
-            qInfo() << "onASTCRowReceived "<< receivedASTCRowsCount << " TS: "<<row["ts"].toDateTime().toString();
+            qInfo() << "onASTCRowReceived "<< receivedASTCRowsCount
+                            << " ROWID: "<< row["ROWID"]
+                            << " TS: "<<row["ts"].toDateTime().toString();
 
     }
 
