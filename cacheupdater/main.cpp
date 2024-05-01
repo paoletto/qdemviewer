@@ -275,10 +275,10 @@ VALUES (:tileHash, :blockX, :blockY, :quality, :width, :height, :tile, :ts, :x, 
         auto res = SQLiteManager::instance().sqliteSelect(insertq.toMap());
         if (!res["error"].isNull())
             qWarning() << "onASTCRowReceived: " << res["error"];
-        if (!(++receivedASTCRowsCount % 1000))
+        if (!(++receivedASTCRowsCount % 1000) || receivedASTCRowsCount == 1)
             qInfo() << "onASTCRowReceived "<< receivedASTCRowsCount
-                            << " ROWID: "<< row["ROWID"]
-                            << " TS: "<<row["ts"].toDateTime().toString();
+                            << " ROWID: "<< row["rowid"].toLongLong()
+                            << " TS: "<<row["ts"].toDateTime().toString(Qt::ISODate);
 
     }
 
