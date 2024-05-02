@@ -246,7 +246,7 @@ INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, 
             qWarning() << "onNetworkRowReceived: " << res["error"];
         if (!(++receivedNetworkRowsCount % 1000))
             qInfo() << "onNetworkRowReceived "<< receivedNetworkRowsCount
-                            << " ROWID: "<< row["ROWID"]
+                            << " ROWID: "<< row["rowid"]
                             << " TS: "<<row["lastAccess"].toDateTime().toString();
     }
 
