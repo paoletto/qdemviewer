@@ -1,7 +1,8 @@
 TEMPLATE = app
 
 include($$PWD/../arch_helper.pri)
-DESTDIR = $$clean_path($$PWD/bin/)
+#DESTDIR = $$clean_path($$PWD/bin/)
+DESTDIR = $$clean_path($$PWD/bin/$${ARCH_PATH}/$${CONFIG_PATH}/$${TYPE_PATH}/$${QT_MAJOR_VERSION}.$${QT_MINOR_VERSION})
 OBJECTS_DIR = $$DESTDIR/.obj
 MOC_DIR = $$DESTDIR/.moc
 RCC_DIR = $$DESTDIR/.rcc
