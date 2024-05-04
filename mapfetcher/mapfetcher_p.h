@@ -128,7 +128,8 @@ class ThrottledNetworkFetcher : public QObject
 {
 Q_OBJECT
 public:
-    ThrottledNetworkFetcher(QObject *parent = nullptr, size_t maxConcurrentRequests = 300);
+    ThrottledNetworkFetcher(size_t maxConcurrentRequests = 300,
+                            QObject *parent = nullptr);
     ~ThrottledNetworkFetcher() = default;
 
     void requestTile(const QUrl &request,
@@ -141,7 +142,8 @@ public:
                      const char *onFinished,
                      QObject *destError = nullptr,
                      const char *onErrorSlot = nullptr);
-
+    void setProgressDriver(QObject *progressSender,
+                           const char *progressSignal);
 protected slots:
     void onFinished();
 
@@ -159,6 +161,9 @@ protected:
     QNetworkAccessManager &m_nm;
     size_t m_maxConcurrent;
     size_t m_active{0};
+
+    QPointer<QObject> m_progressSender;
+    QByteArray m_progressSignal;
 
     QQueue<std::tuple<QUrl, TileKey, quint8, quint64, bool, quint32,
                       QObject *, std::string,
@@ -460,6 +465,7 @@ class ASTCFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
 public:
     ASTCFetcherWorkerPrivate() = default;
     ~ASTCFetcherWorkerPrivate() override = default;
+    void setNetworkProgressDriver();
 
     bool m_forwardUncompressed{false};
     std::unordered_map<quint64, qint64> m_request2remainingASTCHandlers;

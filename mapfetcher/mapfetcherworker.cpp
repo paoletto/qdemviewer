@@ -328,9 +328,20 @@ public:
     void operator=(NAM const&) = delete;
 };
 
-ThrottledNetworkFetcher::ThrottledNetworkFetcher(QObject *parent, size_t maxConcurrentRequests)
+ThrottledNetworkFetcher::ThrottledNetworkFetcher(size_t maxConcurrentRequests,
+                                                 QObject *parent)
 : QObject(parent), m_nm(NAM::instance().nam()), m_maxConcurrent(maxConcurrentRequests)
 {
+}
+
+void ThrottledNetworkFetcher::setProgressDriver(QObject *progressSender, const char *progressSignal) {
+    if (progressSender && progressSignal) {
+        m_progressSender = progressSender;
+        m_progressSignal = QByteArray(progressSignal);
+        auto conn = connect(m_progressSender.data(), m_progressSignal.constData(), this, SLOT(onFinished()), Qt::QueuedConnection);
+        if (!conn)
+            qFatal("Failed to connect progress driver with ThrottledNetworkFetcher!");
+    }
 }
 
 void ThrottledNetworkFetcher::requestTile(const QUrl &u,
@@ -443,7 +454,11 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
         connect(reply, SIGNAL(finished()), destFinished, onFinishedSlot);
     if (destError && onErrorSlot)
         connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), destError, onErrorSlot);
-    connect(reply, &QNetworkReply::finished, this, &ThrottledNetworkFetcher::onFinished);
+    if (!m_progressSender || coverage) { // TODO: find a more engineered way to handle coverage requests progress driving?
+        connect(reply, &QNetworkReply::finished, this, &ThrottledNetworkFetcher::onFinished);
+    } else {
+        connect(reply, &QNetworkReply::errorOccurred, this, &ThrottledNetworkFetcher::onFinished);
+    }
     ++m_active;
 }
 
@@ -1127,6 +1142,7 @@ bool ASTCFetcherWorker::forwardUncompressed() const
 void ASTCFetcherWorker::init()
 {
     Q_D(ASTCFetcherWorker);
+    d->setNetworkProgressDriver();
     connect(qobject_cast<ASTCFetcher *>(d->m_fetcher), &ASTCFetcher::forwardUncompressedTilesChanged,
             this, &ASTCFetcherWorker::setForwardUncompressed, Qt::QueuedConnection);
     connect(this, &MapFetcherWorker::tileReady, this, &ASTCFetcherWorker::onTileReady);
@@ -1192,4 +1208,10 @@ void ASTCFetcherWorker::onInsertCoverageASTC(quint64 id,
                                              std::shared_ptr<CompressedTextureData> h)
 {
     emit coverageASTCReady(id, std::move(h));
+}
+
+void ASTCFetcherWorkerPrivate::setNetworkProgressDriver()
+{
+    Q_Q(ASTCFetcherWorker);
+    m_nm.setProgressDriver(q, SIGNAL(tileASTCReady(quint64, const TileKey, std::shared_ptr<CompressedTextureData>)));
 }
