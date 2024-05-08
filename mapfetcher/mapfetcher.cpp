@@ -757,7 +757,7 @@ URLTemplate extractTemplates(QString urlTemplate) {
 
 bool CompressedTextureData::isFormatCompressed(GLint format) {
     static std::set<GLint> compressedFormats {
-        QOpenGLTexture::RGBA_ASTC_4x4,
+                QOpenGLTexture::RGBA_ASTC_4x4,
                 QOpenGLTexture::RGBA_ASTC_5x4,
                 QOpenGLTexture::RGBA_ASTC_5x5,
                 QOpenGLTexture::RGBA_ASTC_6x5,

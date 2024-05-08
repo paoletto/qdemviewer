@@ -25,18 +25,50 @@
 #include <QByteArray>
 #include <private/qtexturefiledata_p.h>
 
+struct ASTCEncoderConfig {
+    // check QOpenGLTexture::RGBA_ASTC_*
+    // offy pixel bitrates are
+    // 4x4 8bpp
+    // 6x6 3.56 bpp
+    // 8x8 2bpp
+    // 10x10 1.28 bpp
+    // 12x12 0.89 bpp
+    enum BlockSize {
+        BlockSize4x4 = 4,
+        BlockSize6x6 = 6,
+        BlockSize8x8 = 8,
+        BlockSize10x10 = 10,
+        BlockSize12x12 = 12,
+    };
 
+    static constexpr const float ASTCENC_PRE_FASTEST = 0.0f;
+    static constexpr const float ASTCENC_PRE_FAST = 10.0f;
+    static constexpr const float ASTCENC_PRE_MEDIUM = 60.0f;
+    static constexpr const float ASTCENC_PRE_THOROUGH = 98.0f;
+    static constexpr const float ASTCENC_PRE_VERYTHOROUGH = 99.0f;
+    static constexpr const float ASTCENC_PRE_EXHAUSTIVE = 100.0f;
+
+    bool operator<(const ASTCEncoderConfig& o) const {
+        return block_x < o.block_x
+                || (block_x == o.block_x && quality < o.quality);
+    }
+
+
+    unsigned int block_x = 8;
+    unsigned int block_y = 8;
+    float quality = 85.0f;
+};
 
 // to use a single astc context
 struct ASTCEncoderPrivate;
 class ASTCEncoder
 {
 public:
-    static ASTCEncoder& instance();
+
+
+    static ASTCEncoder& instance(ASTCEncoderConfig::BlockSize bs = ASTCEncoderConfig::BlockSize8x8, float quality = 85.f);
 
     static QImage halve(const QImage &src);
-
-    static int blockSize();
 
     static QTextureFileData fromCached(QByteArray &cached);
 
@@ -53,7 +85,7 @@ protected:
     QTextureFileData compress(QImage ima);
 
 private:
-    ASTCEncoder();
+    ASTCEncoder(ASTCEncoderConfig c);
 
     ~ASTCEncoder();
 

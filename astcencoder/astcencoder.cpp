@@ -42,10 +42,14 @@
 
 #include "astcenc.h"
 
+namespace  {
+constexpr const int minMipSize = 8; // was ASTCEncoder::blockSize()
+}
+
 struct ASTCEncoderPrivate {
-    ASTCEncoderPrivate()
+    ASTCEncoderPrivate(ASTCEncoderConfig ctx_)
     : m_cacheDirPath(QStringLiteral("%1/astcCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)))
-    , m_tileCache(m_cacheDirPath)
+    , m_tileCache(m_cacheDirPath), m_encoderConfig(ctx_)
     {
         swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
                     ASTCENC_SWZ_B,
@@ -56,11 +60,32 @@ struct ASTCEncoderPrivate {
 
         astcenc_error status;
 
-        config.block_x = block_x;
-        config.block_y = block_y;
+        config.block_x = m_encoderConfig.block_x;
+        config.block_y = m_encoderConfig.block_y;
         config.profile = profile;
 
-        status = astcenc_config_init(profile, block_x, block_y, block_z, quality, 0, &config);
+        // do what ASTCENC_FLG_USE_PERCEPTUAL does, that is:
+        // This is a very basic perceptual metric for RGB color data, which weights error
+        // significance by the perceptual luminance contribution of each color channel. For
+        // luminance the usual weights to compute luminance from a linear RGB value are as
+        // follows:
+        //
+        //     l = r * 0.3 + g * 0.59 + b * 0.11
+        //
+        // ... but we scale these up to keep a better balance between color and alpha. Note
+        // that if the content is using alpha we'd recommend using the -a option to weight
+        // the color contribution by the alpha transparency.
+        config.cw_r_weight = 0.30f * 2.25f;
+        config.cw_g_weight = 0.59f * 2.25f;
+        config.cw_b_weight = 0.11f * 2.25f;
+
+        status = astcenc_config_init(profile,
+                                     m_encoderConfig.block_x,
+                                     m_encoderConfig.block_y,
+                                     block_z,
+                                     m_encoderConfig.quality,
+                                     0,
+                                     &config);
         if (status != ASTCENC_SUCCESS) {
             qWarning() << "ERROR: Codec config init failed: " << astcenc_get_error_string(status);
             qFatal("Terminating");
@@ -90,24 +115,9 @@ struct ASTCEncoderPrivate {
     QString m_cacheDirPath;
     ASTCCache m_tileCache;
 
+    ASTCEncoderConfig m_encoderConfig;
     static const astcenc_profile profile = ASTCENC_PRF_LDR;
-
-//    static const float ASTCENC_PRE_FASTEST = 0.0f;
-//    static const float ASTCENC_PRE_FAST = 10.0f;
-//    static const float ASTCENC_PRE_MEDIUM = 60.0f;
-//    static const float ASTCENC_PRE_THOROUGH = 98.0f;
-//    static const float ASTCENC_PRE_VERYTHOROUGH = 99.0f;
-//    static const float ASTCENC_PRE_EXHAUSTIVE = 100.0f;
-
-    constexpr static const float quality = 85.0f;
-
     static const unsigned int thread_count = 1;
-    static const unsigned int block_x = 8;
-    static const unsigned int block_y = 8;
-//    static const unsigned int block_x = 4;
-//    static const unsigned int block_y = 4;
-//    static const unsigned int block_x = 6;
-//    static const unsigned int block_y = 6;
     static const unsigned int block_z = 1;
     static const uint32_t ASTC_MAGIC_ID = 0x5CA1AB13;
 };
@@ -129,10 +139,13 @@ struct astc_header
     uint8_t dim_z[3];			// block count is inferred
 };
 
-ASTCEncoder &ASTCEncoder::instance()
+ASTCEncoder &ASTCEncoder::instance(ASTCEncoderConfig::BlockSize bs, float quality)
 {
-    thread_local ASTCEncoder instance;
-    return instance;
+    thread_local std::map<ASTCEncoderConfig, ASTCEncoder*> instances;
+    const ASTCEncoderConfig c{bs,bs,quality};
+    if (instances.find(c) == instances.end())
+        instances[c] = new ASTCEncoder(c);
+    return *instances[c];
 }
 
 QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
@@ -141,8 +154,10 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
     else
         ima = ima.convertToFormat(QImage::Format_RGB32);
     // Compute the number of ASTC blocks in each dimension
-    unsigned int block_count_x = (ima.width() + d->block_x - 1) / d->block_x;
-    unsigned int block_count_y = (ima.height() + d->block_y - 1) / d->block_y;
+    unsigned int block_count_x = (ima.width() + d->m_encoderConfig.block_x - 1)
+                                    / d->m_encoderConfig.block_x;
+    unsigned int block_count_y = (ima.height() + d->m_encoderConfig.block_y - 1)
+                                    / d->m_encoderConfig.block_y;
 
     // Compress the image
     astcenc_image image;
@@ -179,8 +194,8 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
     hdr.magic[2] = (d->ASTC_MAGIC_ID >> 16) & 0xFF;
     hdr.magic[3] = (d->ASTC_MAGIC_ID >> 24) & 0xFF;
 
-    hdr.block_x = static_cast<uint8_t>(d->block_x);
-    hdr.block_y = static_cast<uint8_t>(d->block_y);
+    hdr.block_x = static_cast<uint8_t>(d->m_encoderConfig.block_x);
+    hdr.block_y = static_cast<uint8_t>(d->m_encoderConfig.block_y);
     hdr.block_z = static_cast<uint8_t>(1);
 
     hdr.dim_x[0] =  image.dim_x        & 0xFF;
@@ -248,10 +263,6 @@ QImage ASTCEncoder::halve(const QImage &src) { // TODO: change into move once m_
     return res;
 }
 
-int ASTCEncoder::blockSize() {
-    return ASTCEncoderPrivate::block_x;
-}
-
 QTextureFileData ASTCEncoder::fromCached(QByteArray &cached) {
     QBuffer buf(&cached);
     buf.open(QIODevice::ReadOnly);
@@ -274,7 +285,7 @@ void ASTCEncoder::generateMips(QImage ima, std::vector<QImage> &out)
 
     while (isEven(size)) {
         size = QSize(size.width() / 2, size.height() / 2);
-        if (size.width() < ASTCEncoder::blockSize())
+        if (size.width() < minMipSize)
             break;
         halved = ASTCEncoder::halve(halved);
         out.emplace_back(halved.convertToFormat(QImage::Format_RGBA8888));
@@ -296,9 +307,9 @@ void ASTCEncoder::generateMips(const QImage &ima,
     QImage halved;
 
     QByteArray cached = d->m_tileCache.tile(md5,
-                                         d->block_x,
-                                         d->block_y,
-                                         d->quality,
+                                         d->m_encoderConfig.block_x,
+                                         d->m_encoderConfig.block_y,
+                                         d->m_encoderConfig.quality,
                                          size.width(),
                                          size.height());
 
@@ -307,12 +318,12 @@ void ASTCEncoder::generateMips(const QImage &ima,
 
         while (isEven(size)) {
             size = QSize(size.width() / 2, size.height() / 2);
-            if (size.width() < ASTCEncoder::blockSize())
+            if (size.width() < minMipSize)
                 break;
             cached = d->m_tileCache.tile(md5,
-                                      d->block_x,
-                                      d->block_y,
-                                      d->quality,
+                                      d->m_encoderConfig.block_x,
+                                      d->m_encoderConfig.block_y,
+                                      d->m_encoderConfig.quality,
                                       size.width(),
                                       size.height());
             if (!cached.size()) { // generateMips was probably aborted during operation. Recover the missing mips
@@ -322,15 +333,15 @@ void ASTCEncoder::generateMips(const QImage &ima,
                     halved = ASTCEncoder::halve(halved);
                 }
                 while (isEven(halved.size())) {
-                    if (halved.size().width() < ASTCEncoder::blockSize())
+                    if (halved.size().width() < minMipSize)
                         break;
                     QByteArray compressed = ASTCEncoder::instance().compress(halved).data();
                     if (!next.size())
                         next = compressed;
                     d->m_tileCache.insert(md5,
-                                       d->block_x,
-                                       d->block_y,
-                                       d->quality,
+                                       d->m_encoderConfig.block_x,
+                                       d->m_encoderConfig.block_y,
+                                       d->m_encoderConfig.quality,
                                        halved.size().width(),
                                        halved.size().height(),
                                        x,y,z,
@@ -345,9 +356,9 @@ void ASTCEncoder::generateMips(const QImage &ima,
     } else {
         out.emplace_back(ASTCEncoder::instance().compress(ima));
         d->m_tileCache.insert(md5,
-                           d->block_x,
-                           d->block_y,
-                           d->quality,
+                           d->m_encoderConfig.block_x,
+                           d->m_encoderConfig.block_y,
+                           d->m_encoderConfig.quality,
                            size.width(),
                            size.height(),
                            x,y,z,
@@ -355,14 +366,14 @@ void ASTCEncoder::generateMips(const QImage &ima,
         halved = ima;
         while (isEven(size)) {
             size = QSize(size.width() / 2, size.height() / 2);
-            if (size.width() < ASTCEncoder::blockSize())
+            if (size.width() < minMipSize)
                 break;
             halved = ASTCEncoder::halve(halved);
             out.emplace_back(ASTCEncoder::instance().compress(halved));
             d->m_tileCache.insert(md5,
-                               d->block_x,
-                               d->block_y,
-                               d->quality,
+                               d->m_encoderConfig.block_x,
+                               d->m_encoderConfig.block_y,
+                               d->m_encoderConfig.quality,
                                size.width(),
                                size.height(),
                                x,y,z,
@@ -372,10 +383,13 @@ void ASTCEncoder::generateMips(const QImage &ima,
 }
 
 bool ASTCEncoder::isCached(const QByteArray &md5) {
-    return d->m_tileCache.contains(md5, d->block_x, d->block_y, d->quality);
+    return d->m_tileCache.contains(md5,
+                                   d->m_encoderConfig.block_x,
+                                   d->m_encoderConfig.block_y,
+                                   d->m_encoderConfig.quality);
 }
 
-ASTCEncoder::ASTCEncoder(): d(new ASTCEncoderPrivate){}
+ASTCEncoder::ASTCEncoder(ASTCEncoderConfig c): d(new ASTCEncoderPrivate(c)){}
 
 ASTCEncoder::~ASTCEncoder() {}
 
