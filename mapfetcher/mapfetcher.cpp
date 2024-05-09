@@ -24,37 +24,7 @@
 #include "tilecache_p.h"
 #include "utils_p.h"
 
-#include <QtPositioning/private/qwebmercator_p.h>
-#include <QtLocation/private/qgeocameratiles_p_p.h>
-#include <QRandomGenerator>
-#include <QRandomGenerator64>
-#include <QNetworkRequest>
-#include <QCoreApplication>
-
-#include <QThreadPool>
-#include <QRunnable>
-#include <QThread>
-#include <QQueue>
-
 #include <QByteArray>
-#include <QMatrix4x4>
-#include <QQuaternion>
-#include <QVector3D>
-#include <QOpenGLPixelTransferOptions>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
-#include <QOpenGLExtraFunctions>
-#include <QOpenGLFunctions_4_5_Core>
-
-#include <QStandardPaths>
-#include <QDirIterator>
-#include <QDir>
-#include <QFileInfo>
-#include <QCryptographicHash>
-
-#include <iostream>
-#include <string>
-#include <cstdlib>
 #include <vector>
 #include <map>
 
@@ -87,7 +57,7 @@ struct TileKeyRegistrar
         qRegisterMetaType<std::shared_ptr<QImage>>("QImageShared");
         qRegisterMetaType<std::shared_ptr<QByteArray>>("QByteArrayShared");
         qRegisterMetaType<std::shared_ptr<HeightmapBase>>("HeightmapShared");
-        qRegisterMetaType<std::shared_ptr<CompressedTextureData>>("CompressedTextureDataShared");
+        qRegisterMetaType<std::shared_ptr<OpenGLTextureData>>("OpenGLTextureDataShared");
     }
 };
 
@@ -470,6 +440,28 @@ bool Heightmap::bordersComputed() const
     return m_hasBorders;
 }
 
+quint64 Heightmap::upload(QSharedPointer<QOpenGLTexture> &t)
+{
+    if (size().isEmpty() || elevations.empty())
+        return 0;
+
+    if (!t || QSize(t->width(), t->height()) != size()) {
+        t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+        t->setFormat(QOpenGLTexture::R32F);
+        t->setSize(size().width(), size().height());
+        t->allocateStorage(QOpenGLTexture::Red, QOpenGLTexture::Float32);
+    }
+    t->setData(QOpenGLTexture::Red,
+                      QOpenGLTexture::Float32,
+                      (const void *) &(elevations.front()));
+    return elevations.size() * sizeof(float);
+}
+
+quint64 Heightmap::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray, int layer, int layers)
+{
+
+}
+
 
 MapFetcher::MapFetcher(QObject *parent)
 : QObject(*new MapFetcherPrivate, parent)
@@ -602,11 +594,11 @@ quint64 DEMFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &crds, co
     return NetworkManager::instance().requestCoverage(*q, crds, zoom, clip);
 }
 
-std::shared_ptr<CompressedTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, const TileKey k)
+std::shared_ptr<OpenGLTextureData> ASTCFetcherPrivate::tileASTC(quint64 id, const TileKey k)
 {
     const auto it = m_tileCacheASTC[id].find(k);
     if (it != m_tileCacheASTC[id].end()) {
-        std::shared_ptr<CompressedTextureData> res = std::move(it->second);
+        std::shared_ptr<OpenGLTextureData> res = std::move(it->second);
         m_tileCacheASTC[id].erase(it);
         return res;
     }
@@ -633,13 +625,13 @@ ASTCFetcher::ASTCFetcher(QObject *parent)
 :   MapFetcher(*new ASTCFetcherPrivate, parent) {}
 
 
-std::shared_ptr<CompressedTextureData> ASTCFetcher::tile(quint64 id, const TileKey k)
+std::shared_ptr<OpenGLTextureData> ASTCFetcher::tile(quint64 id, const TileKey k)
 {
     Q_D(ASTCFetcher);
     return d->tileASTC(id, k);
 }
 
-std::shared_ptr<CompressedTextureData> ASTCFetcher::tileCoverage(quint64 id)
+std::shared_ptr<OpenGLTextureData> ASTCFetcher::tileCoverage(quint64 id)
 {
     Q_D(ASTCFetcher);
     auto it = d->m_coveragesASTC.find(id);
@@ -665,7 +657,7 @@ void ASTCFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_pt
 
     auto ctd = std::make_shared<ASTCCompressedTextureData>();
     ctd->m_image = i;
-    ASTCFetcher::onInsertASTCTile(id, k, std::static_pointer_cast<CompressedTextureData>(ctd));
+    ASTCFetcher::onInsertASTCTile(id, k, std::static_pointer_cast<OpenGLTextureData>(ctd));
 }
 
 void ASTCFetcher::setForwardUncompressedTiles(bool enabled)
@@ -680,7 +672,7 @@ void ASTCFetcher::setForwardUncompressedTiles(bool enabled)
 
 void ASTCFetcher::onInsertASTCTile(const quint64 id,
                                    const TileKey k,
-                                   std::shared_ptr<CompressedTextureData> i)
+                                   std::shared_ptr<OpenGLTextureData> i)
 {
     Q_D(ASTCFetcher);
     d->m_tileCacheASTC[id][k] = std::move(i);
@@ -688,46 +680,12 @@ void ASTCFetcher::onInsertASTCTile(const quint64 id,
 }
 
 void ASTCFetcher::onInsertASTCCoverage(const quint64 id,
-                                       std::shared_ptr<CompressedTextureData> i)
+                                       std::shared_ptr<OpenGLTextureData> i)
 {
     Q_D(ASTCFetcher);
     d->m_coveragesASTC[id] = std::move(i);
     emit coverageReady(id);
 }
-
-std::vector<QImage> ASTCCompressedTextureData::m_white256;
-std::vector<QTextureFileData> ASTCCompressedTextureData::m_white8x8ASTC;
-std::vector<QTextureFileData> ASTCCompressedTextureData::m_transparent8x8ASTC;
-
-namespace  {
-void loadASTCMips(const QString &baseName, std::vector<QTextureFileData> &container) {
-    for (int i : {256,128,64,32,16,8}) {
-        QString fname = ":/" + baseName + QString::number(i) + "_8x8.astc";
-        QFile f(fname);
-        bool res = f.open(QIODevice::ReadOnly);
-        if (!res) {
-            qWarning()<<"Failed opening " <<f.fileName();
-        }
-        QTextureFileReader fr(&f);
-        if (!fr.canRead())
-            qWarning()<<"TFR cannot read texture!";
-
-        container.push_back(fr.read());
-        f.close();
-    }
-}
-}
-
-void ASTCCompressedTextureData::initStatics() {
-    if (m_white256.size())
-        return;
-    Q_INIT_RESOURCE(qmake_mapfetcher_res);
-    m_white256.resize(1);
-    m_white256[0].load(":/white256.png");
-    loadASTCMips("white", m_white8x8ASTC);
-    loadASTCMips("transparent", m_transparent8x8ASTC);
-}
-
 
 URLTemplate extractTemplates(QString urlTemplate) {
     URLTemplate res;
@@ -764,7 +722,7 @@ URLTemplate extractTemplates(QString urlTemplate) {
     return res;
 }
 
-bool CompressedTextureData::isFormatCompressed(GLint format) {
+bool OpenGLTextureUtils::isFormatCompressed(GLint format) {
     static std::set<GLint> compressedFormats {
                 QOpenGLTexture::RGBA_ASTC_4x4,
                 QOpenGLTexture::RGBA_ASTC_5x4,
@@ -806,3 +764,4 @@ void DEMFetcherWorkerPrivate::insertNeighbors(quint64 id,
             std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>> nm = {n, std::move(boundaryRasters)};
     m_request2Neighbors[id][k] = std::move(nm);
 }
+

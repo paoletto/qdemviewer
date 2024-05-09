@@ -19,43 +19,20 @@
 ****************************************************************************/
 
 #include "mapfetcher_p.h"
+#include "utils_p.h"
+#include "astcencoder.h"
+
 #include <QImage>
-#include <QBuffer>
 #include <QByteArray>
 
 #include <QtPositioning/private/qwebmercator_p.h>
-#include <QtLocation/private/qgeocameratiles_p_p.h>
-#include <QRandomGenerator>
-#include <QRandomGenerator64>
-#include <QNetworkRequest>
+#include <QtPositioning/private/qdoublevector3d_p.h>
+
 #include <QCoreApplication>
-
-#include <QThreadPool>
-#include <QRunnable>
 #include <QThread>
-#include <QQueue>
 
-#include <QMatrix4x4>
-#include <QQuaternion>
-#include <QVector3D>
-#include <QOpenGLPixelTransferOptions>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
-#include <QOpenGLExtraFunctions>
-#include <QOpenGLFunctions_4_5_Core>
-
-#include <QStandardPaths>
-#include <QDirIterator>
-#include <QDir>
-#include <QFileInfo>
-#include <QCryptographicHash>
-
-#include <iostream>
-#include <string>
-#include <cstdlib>
 #include <vector>
 #include <map>
-#include "astcencoder.h"
 
 namespace {
 quint64 getX(const TileData& d) {
@@ -614,8 +591,8 @@ void Raster2ASTCHandler::process()
 
         d->m_md5 = md5QImage(*d->m_rasterImage);
     }
-    std::shared_ptr<CompressedTextureData> t =
-            std::static_pointer_cast<CompressedTextureData>(
+    std::shared_ptr<OpenGLTextureData> t =
+            std::static_pointer_cast<OpenGLTextureData>(
                 ASTCCompressedTextureData::fromImage(d->m_rasterImage,
                                                      d->m_k.x,
                                                      d->m_k.y,
@@ -635,55 +612,15 @@ DEMTileReplyHandler::DEMTileReplyHandler(QNetworkReply *reply, MapFetcherWorker 
 
 ASTCTileReplyHandler::ASTCTileReplyHandler(QNetworkReply *reply, MapFetcherWorker &mapFetcher)
     :   TileReplyHandler(reply, mapFetcher) {
-        m_emitUncompressedData = true;
-    }
-
+    m_emitUncompressedData = true;
+}
 
 quint64 ASTCCompressedTextureData::upload(QSharedPointer<QOpenGLTexture> &t)
 {
-    if (!NetworkConfiguration::astcEnabled || !m_mips.size()) {
-        if (!m_image)
-            return 0;
-        t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-        t->setMaximumAnisotropy(16);
-        t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                                   QOpenGLTexture::Linear);
-        t->setWrapMode(QOpenGLTexture::ClampToEdge);
-        t->setData(*m_image);
-        return m_image->size().width() * m_image->size().height() * 4; // rgba8
-    } else {
-        if (!m_mips.size())
-            return 0;
-        const int maxLod = m_mips.size() - 1;
-
-        t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-        t->setAutoMipMapGenerationEnabled(false);
-        t->setMaximumAnisotropy(16);
-        t->setMipMaxLevel(maxLod);
-        t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                                   QOpenGLTexture::Linear);
-        t->setWrapMode(QOpenGLTexture::ClampToEdge);
-
-
-        t->setFormat(QOpenGLTexture::TextureFormat(m_mips.at(0).glInternalFormat()));
-        t->setSize(m_mips.at(0).size().width(), m_mips.at(0).size().height());
-        t->setMipLevels(m_mips.size());
-        t->allocateStorage();
-
-        QOpenGLPixelTransferOptions uploadOptions;
-        uploadOptions.setAlignment(1);
-
-        quint64 sz{0};
-        for (int i  = 0; i <= maxLod; ++i) {
-            t->setCompressedData(i,
-                                 m_mips.at(i).dataLength(),
-                                 m_mips.at(i).data().constData() + m_mips.at(i).dataOffset(),
-                                 &uploadOptions);
-            sz += m_mips.at(i).dataLength();
-        }
-
-        return sz; // astc
-    }
+    if (!NetworkConfiguration::astcEnabled || !m_mips.size())
+        return OpenGLTextureUtils::fillSingleTextureUncompressed(t, m_image);
+    else
+        return OpenGLTextureUtils::fillSingleTextureASTC(t, m_mips);
 }
 
 // TODO: move this code out of the library and into the application
@@ -691,126 +628,16 @@ quint64 ASTCCompressedTextureData::uploadTo2DArray(QSharedPointer<QOpenGLTexture
                                                    int layer,
                                                    int layers)
 {
-    initStatics();
     if (!NetworkConfiguration::astcEnabled) { // || !m_mips.size()) {
-        if (!m_image)
-            return 0;
-        QOpenGLPixelTransferOptions uploadOptions;
-        uploadOptions.setAlignment(1);
-        auto &t = texArray;
-        if (!t
-            || t->width() != m_image->size().width()
-            || t->height() != m_image->size().height()
-            || t->layers() != layers
-            || isFormatCompressed(t->format()))
-        {
-            t.reset(new QOpenGLTexture(QOpenGLTexture::Target2DArray));
-            t->setLayers(layers);
-            t->setMaximumAnisotropy(16);
-            t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                                       QOpenGLTexture::Linear);
-            t->setWrapMode(QOpenGLTexture::ClampToEdge);
-            // generate the mips here only one at a time,
-            // don't make the driver produce all of them when initializing the array with white
-            t->setAutoMipMapGenerationEnabled(false);
-            t->setFormat(QOpenGLTexture::RGBA8_UNorm);
-            t->setSize(m_image->size().width(), m_image->size().height());
-
-            if (m_white256.size() == 1) {
-                QImage i256 = std::move(m_white256[0]);
-                m_white256.clear();
-                ASTCEncoder::generateMips(i256, m_white256);
-            }
-
-            t->setMipLevels(m_white256.size());
-            t->allocateStorage();
-
-            for (int l = 0; l < layers; ++l) {
-                for (int m = 0; m < m_white256.size(); ++m) {
-                    t->setData(m,
-                               l,
-                               QOpenGLTexture::RGBA,
-                               QOpenGLTexture::UInt8,
-                               m_white256[m].constBits(),
-                               &uploadOptions);
-                }
-            }
-        }
-
-        QImage glImage = m_image->convertToFormat(QImage::Format_RGBA8888);
-        std::vector<QImage> mips;
-        ASTCEncoder::generateMips(glImage, mips);
-        quint64 sz{0};
-        for (size_t m = 0; m < mips.size(); ++m) {
-            t->setData(m,
-                       layer,
-                       QOpenGLTexture::RGBA,
-                       QOpenGLTexture::UInt8,
-                       mips[m].constBits(),
-                       &uploadOptions);
-            sz += mips[m].sizeInBytes();
-        }
-
-        return sz;
+        return OpenGLTextureUtils::fill2DArrayUncompressed(texArray,
+                                                           m_image,
+                                                           layer,
+                                                           layers);
     } else {
-        const int maxLod = m_mips.size() - 1;
-        auto &t = texArray;
-        QOpenGLPixelTransferOptions uploadOptions;
-        uploadOptions.setAlignment(1);
-        if (!t
-            || t->width() != m_mips.front().size().width()
-            || t->height() != m_mips.front().size().height()
-            || t->layers() != layers
-            || !isFormatCompressed(t->format())) {
-            t.reset(new QOpenGLTexture(QOpenGLTexture::Target2DArray));
-            t->setLayers(layers);
-            t->setAutoMipMapGenerationEnabled(false);
-            t->setMaximumAnisotropy(16);
-            t->setMipMaxLevel(maxLod);
-            t->setMinMagFilters(QOpenGLTexture::LinearMipMapLinear,
-                                       QOpenGLTexture::Linear);
-            t->setWrapMode(QOpenGLTexture::ClampToEdge);
-            t->setFormat(QOpenGLTexture::TextureFormat(m_mips.at(0).glInternalFormat()));
-            t->setSize(m_mips.at(0).size().width(), m_mips.at(0).size().height());
-            t->setMipLevels(m_mips.size());
-
-            t->allocateStorage();            
-#if 1 // initialize everything with white
-            for (int i = 0; i < layers; ++i) {
-                for (int mip = 0; mip < m_white8x8ASTC.size(); ++mip) {
-                    t->setCompressedData(mip,
-                               i,
-                               m_white8x8ASTC.at(mip).dataLength(),
-                               m_white8x8ASTC.at(mip).data().constData()
-                                         + m_white8x8ASTC.at(mip).dataOffset(),
-                               &uploadOptions);
-                }
-            }
-#else // initialize everything with transparent
-            for (int i = 0; i < layers; ++i) {
-                for (int mip = 0; mip < m_transparent8x8ASTC.size(); ++mip) {
-                    t->setCompressedData(mip,
-                               i,
-                               m_transparent8x8ASTC.at(mip).dataLength(),
-                               m_transparent8x8ASTC.at(mip).data().constData()
-                                         + m_transparent8x8ASTC.at(mip).dataOffset(),
-                               &uploadOptions);
-                }
-            }
-#endif
-        }
-
-        quint64 sz{0};
-        for (int i  = 0; i <= maxLod; ++i) {
-            t->setCompressedData(i,
-                                 layer,
-                                 m_mips.at(i).dataLength(),
-                                 m_mips.at(i).data().constData() + m_mips.at(i).dataOffset(),
-                                 &uploadOptions);
-            sz += m_mips.at(i).dataLength();
-        }
-
-        return sz; // astc
+        return OpenGLTextureUtils::fill2DArrayASTC(texArray,
+                                                   m_mips,
+                                                   layer,
+                                                   layers);
     } // NetworkConfiguration::astcEnabled
 }
 

@@ -26,35 +26,15 @@
 
 #include <QtPositioning/private/qwebmercator_p.h>
 #include <QtLocation/private/qgeocameratiles_p_p.h>
-#include <QRandomGenerator>
-#include <QRandomGenerator64>
+
 #include <QNetworkRequest>
 #include <QCoreApplication>
 
-#include <QThreadPool>
-#include <QRunnable>
-#include <QThread>
-#include <QQueue>
-
-#include <QByteArray>
-#include <QMatrix4x4>
-#include <QQuaternion>
-#include <QVector3D>
-#include <QOpenGLPixelTransferOptions>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
-#include <QOpenGLExtraFunctions>
-#include <QOpenGLFunctions_4_5_Core>
-
 #include <QStandardPaths>
-#include <QDirIterator>
-#include <QDir>
-#include <QFileInfo>
-#include <QCryptographicHash>
 
 #include <iostream>
 #include <string>
-#include <cstdlib>
+
 #include <vector>
 #include <map>
 
@@ -1196,7 +1176,7 @@ void ASTCFetcherWorker::onCoverageReady(quint64 id,
 
 void ASTCFetcherWorker::onInsertTileASTC(quint64 id,
                                          const TileKey k,
-                                         std::shared_ptr<CompressedTextureData> h)
+                                         std::shared_ptr<OpenGLTextureData> h)
 {
     Q_D(ASTCFetcherWorker);
     emit tileASTCReady(id, k, std::move(h));
@@ -1208,7 +1188,7 @@ void ASTCFetcherWorker::onInsertTileASTC(quint64 id,
 }
 
 void ASTCFetcherWorker::onInsertCoverageASTC(quint64 id,
-                                             std::shared_ptr<CompressedTextureData> h)
+                                             std::shared_ptr<OpenGLTextureData> h)
 {
     emit coverageASTCReady(id, std::move(h));
 }
@@ -1216,5 +1196,7 @@ void ASTCFetcherWorker::onInsertCoverageASTC(quint64 id,
 void ASTCFetcherWorkerPrivate::setNetworkProgressDriver()
 {
     Q_Q(ASTCFetcherWorker);
-    m_nm.setProgressDriver(q, SIGNAL(tileASTCReady(quint64, const TileKey, std::shared_ptr<CompressedTextureData>)));
+    m_nm.setProgressDriver(q, SIGNAL(tileASTCReady(quint64,
+                                                   const TileKey,
+                                                   std::shared_ptr<OpenGLTextureData>)));
 }

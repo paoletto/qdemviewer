@@ -43,7 +43,7 @@ using TileNeighborsMap = std::unordered_map<TileKey,
                                        std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>>>;
 using TileCache = std::unordered_map<TileKey, std::shared_ptr<QImage>>;
 using TileCacheCache = std::unordered_map<TileKey, std::set<TileData>>;
-using TileCacheASTC = std::unordered_map<TileKey, std::shared_ptr<CompressedTextureData>>;
+using TileCacheASTC = std::unordered_map<TileKey, std::shared_ptr<OpenGLTextureData>>;
 
 struct ThreadedJobData {
     enum class JobType {
@@ -221,7 +221,7 @@ public:
     bool m_borders{true};
 };
 
-struct ASTCCompressedTextureData : public CompressedTextureData {
+struct ASTCCompressedTextureData : public OpenGLTextureData {
     ASTCCompressedTextureData() = default;
     ~ASTCCompressedTextureData() override = default;
 
@@ -241,12 +241,6 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
 
     std::shared_ptr<QImage> m_image;
     std::vector<QTextureFileData> m_mips;
-
-    void initStatics();
-
-    static std::vector<QImage> m_white256;
-    static std::vector<QTextureFileData> m_white8x8ASTC;
-    static std::vector<QTextureFileData> m_transparent8x8ASTC;
 };
 
 class ASTCFetcherPrivate :  public MapFetcherPrivate
@@ -257,7 +251,7 @@ public:
     ASTCFetcherPrivate() = default;
     ~ASTCFetcherPrivate() override = default;
 
-    std::shared_ptr<CompressedTextureData> tileASTC(quint64 id, const TileKey k);
+    std::shared_ptr<OpenGLTextureData> tileASTC(quint64 id, const TileKey k);
     quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
                                const quint8 zoom,
                                quint8 destinationZoom,
@@ -268,7 +262,7 @@ public:
                             bool clip) override;
 
     std::map<quint64, TileCacheASTC> m_tileCacheASTC;
-    std::map<quint64, std::shared_ptr<CompressedTextureData>> m_coveragesASTC;
+    std::map<quint64, std::shared_ptr<OpenGLTextureData>> m_coveragesASTC;
     QAtomicInt m_forwardUncompressed{false};
 };
 
@@ -448,15 +442,15 @@ public:
     bool forwardUncompressed() const;
 
 signals:
-    void tileASTCReady(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData>);
-    void coverageASTCReady(quint64 id, std::shared_ptr<CompressedTextureData>);
+    void tileASTCReady(quint64 id, const TileKey k, std::shared_ptr<OpenGLTextureData>);
+    void coverageASTCReady(quint64 id, std::shared_ptr<OpenGLTextureData>);
 
 protected slots:
     void onTileReady(quint64 id, const TileKey k,  std::shared_ptr<QImage> i, QByteArray md5);
     void onCompressedTileDataReady(quint64 id, const TileKey k,  std::shared_ptr<QByteArray> d);
     void onCoverageReady(quint64 id,  std::shared_ptr<QImage> i);
-    void onInsertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> h);
-    void onInsertCoverageASTC(quint64 id, std::shared_ptr<CompressedTextureData> h);
+    void onInsertTileASTC(quint64 id, const TileKey k, std::shared_ptr<OpenGLTextureData> h);
+    void onInsertCoverageASTC(quint64 id, std::shared_ptr<OpenGLTextureData> h);
 
 protected:
     void init();
@@ -932,8 +926,8 @@ public:
     static int priority() { return 9; }
 
 signals:
-    void insertTileASTC(quint64 id, const TileKey k, std::shared_ptr<CompressedTextureData> i);
-    void insertCoverageASTC(quint64 id, std::shared_ptr<CompressedTextureData> i);
+    void insertTileASTC(quint64 id, const TileKey k, std::shared_ptr<OpenGLTextureData> i);
+    void insertCoverageASTC(quint64 id, std::shared_ptr<OpenGLTextureData> i);
 
 public slots:
     void process() override;

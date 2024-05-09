@@ -35,7 +35,6 @@
 #include <math.h>
 #include <algorithm>
 #include <unordered_map>
-#include <private/qtexturefilereader_p.h>
 
 struct TileKey {
     quint64 x;
@@ -79,14 +78,27 @@ struct NetworkConfiguration {
     static QAtomicInt logNetworkRequests;
 };
 
+struct OpenGLTextureData {
+    OpenGLTextureData() = default;
+    virtual ~OpenGLTextureData() = default;
+
+    virtual quint64 upload(QSharedPointer<QOpenGLTexture> &) = 0;
+    virtual quint64 uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
+                                              int layer,
+                                              int layers) = 0;
+    virtual QSize size() const = 0;
+    virtual bool hasCompressedData() const = 0;
+};
+
 struct HeightmapBase {
     virtual ~HeightmapBase() = default;
     virtual void rescale(int) {}
     virtual QSize size() const = 0;
     virtual bool bordersComputed() const = 0;
+    OpenGLTextureData *asOpenGLTextureData() { return dynamic_cast<OpenGLTextureData *>(this); }
 };
 
-struct Heightmap : public HeightmapBase {
+struct Heightmap : public HeightmapBase, public OpenGLTextureData {
     enum Neighbor {
         Top = 1 << 0,
         Bottom = 1 << 1,
@@ -107,11 +119,17 @@ struct Heightmap : public HeightmapBase {
     void rescale(int size) override;
     void setSize(QSize size, float initialValue = .0f);
     QSize size() const override;
+    bool hasCompressedData() const override { return false; }
     void printMinMax() const;
 
     float elevation(int x, int y) const;
     void setElevation(int x, int y, float e);
     bool bordersComputed() const override;
+
+    quint64 upload(QSharedPointer<QOpenGLTexture> &) override;
+    quint64 uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
+                                              int layer,
+                                              int layers) override;
 
     QSize m_size;
     std::vector<float> elevations;
@@ -119,21 +137,9 @@ struct Heightmap : public HeightmapBase {
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(Heightmap::Neighbors)
 
-struct CompressedTextureData {
-    CompressedTextureData() = default;
-    virtual ~CompressedTextureData() = default;
 
-    virtual quint64 upload(QSharedPointer<QOpenGLTexture> &) = 0;
-    virtual quint64 uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
-                                              int layer,
-                                              int layers) = 0;
-    virtual QSize size() const = 0;
-    virtual bool hasCompressedData() const = 0;
 
-    static bool isFormatCompressed(GLint format);
-};
-
-struct TerrariumHeightmapData : public CompressedTextureData, public  HeightmapBase {
+struct TerrariumHeightmapData : public OpenGLTextureData, public  HeightmapBase {
 
 
 };
@@ -262,8 +268,8 @@ public:
     ASTCFetcher(QObject *parent);
     ~ASTCFetcher() override = default;
 
-    std::shared_ptr<CompressedTextureData> tile(quint64 id, const TileKey k);
-    std::shared_ptr<CompressedTextureData> tileCoverage(quint64 id);
+    std::shared_ptr<OpenGLTextureData> tile(quint64 id, const TileKey k);
+    std::shared_ptr<OpenGLTextureData> tileCoverage(quint64 id);
 
     void setForwardUncompressedTiles(bool enabled);
     const QAtomicInt &forwardUncompressedTiles() const;
@@ -275,9 +281,9 @@ protected slots:
     void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) override;
     void onInsertASTCTile(const quint64 id,
                           const TileKey k,
-                          std::shared_ptr<CompressedTextureData> i);
+                          std::shared_ptr<OpenGLTextureData> i);
     void onInsertASTCCoverage(const quint64 id,
-                              std::shared_ptr<CompressedTextureData> i);
+                              std::shared_ptr<OpenGLTextureData> i);
 
 protected:
     ASTCFetcher(ASTCFetcherPrivate &dd, QObject *parent = nullptr);
@@ -322,7 +328,7 @@ friend class NetworkIOManager;
 Q_DECLARE_METATYPE(TileKey)
 Q_DECLARE_METATYPE(std::shared_ptr<QImage>)
 Q_DECLARE_METATYPE(std::shared_ptr<QByteArray>)
-Q_DECLARE_METATYPE(std::shared_ptr<CompressedTextureData>)
+Q_DECLARE_METATYPE(std::shared_ptr<OpenGLTextureData>)
 Q_DECLARE_METATYPE(std::shared_ptr<HeightmapBase>)
 
 #endif

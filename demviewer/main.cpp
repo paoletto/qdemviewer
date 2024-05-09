@@ -509,14 +509,14 @@ struct Tile
             m_resolution = m_dem->size();
     }
 
-    void setMap(std::shared_ptr<CompressedTextureData> map) {
+    void setMap(std::shared_ptr<OpenGLTextureData> map) {
         m_map = map;
         if (!m_map)
             m_rasterBytes = 0;
     }
 
     void setRasterSubtile(const TileKey &k,
-                          std::shared_ptr<CompressedTextureData> tileRaster) {
+                          std::shared_ptr<OpenGLTextureData> tileRaster) {
         if (!tileRaster) {
             if (m_rasterSubtiles.find(k) == m_rasterSubtiles.end())
                 return;
@@ -558,7 +558,7 @@ struct Tile
             m_map = nullptr;
         } else if (m_rasterSubtiles.size()) { // assume they are the correct subcontent for this tile.
             m_compressedRaster = true;
-            std::map<TileKey, std::shared_ptr<CompressedTextureData>> subtiles;
+            std::map<TileKey, std::shared_ptr<OpenGLTextureData>> subtiles;
             subtiles.swap(m_rasterSubtiles);
             for (auto &st: subtiles) {
                 const int layers = keyToLayers(m_key, st.first);
@@ -639,8 +639,8 @@ struct Tile
     std::shared_ptr<HeightmapBase> m_dem;
     QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
-    std::shared_ptr<CompressedTextureData> m_map;
-    std::map<TileKey, std::shared_ptr<CompressedTextureData>> m_rasterSubtiles;
+    std::shared_ptr<OpenGLTextureData> m_map;
+    std::map<TileKey, std::shared_ptr<OpenGLTextureData>> m_rasterSubtiles;
     QSharedPointer<QOpenGLTexture> m_texMap;
 
     std::shared_ptr<Tile> m_right;
@@ -694,7 +694,7 @@ public:
     }
 
     void updateTileRaster(const TileKey k,
-                          std::shared_ptr<CompressedTextureData> raster)
+                          std::shared_ptr<OpenGLTextureData> raster)
     {
 #if 1
         auto t = m_tiles.find(k);
@@ -1279,7 +1279,7 @@ private:
     QTimer m_provisioningUpdateTimer;
 
     std::map<TileKey, std::shared_ptr<HeightmapBase>> m_newTiles;
-    std::map<TileKey, std::shared_ptr<CompressedTextureData>> m_newMapRasters;
+    std::map<TileKey, std::shared_ptr<OpenGLTextureData>> m_newMapRasters;
 
     friend class TileRenderer;
     Q_DISABLE_COPY(TerrainViewer)
@@ -1376,16 +1376,7 @@ QSharedPointer<QOpenGLTexture> Tile::demTexture() {
             m_resolution = h.size();
         }
 
-        if (!m_texDem || QSize(m_texDem->width(), m_texDem->height()) != h.size()) {
-            m_texDem.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
-            m_texDem->setFormat(QOpenGLTexture::R32F);
-            m_texDem->setSize(h.size().width(), h.size().height());
-            m_texDem->allocateStorage(QOpenGLTexture::Red, QOpenGLTexture::Float32);
-        }
-        m_texDem->setData(QOpenGLTexture::Red,
-                          QOpenGLTexture::Float32,
-        /* FIXME!!!! */   (const void *) &(static_cast<Heightmap &>(h).elevations.front()));
-
+        h.asOpenGLTextureData()->upload(m_texDem); // FIXME!!!
         m_dem.reset();
     }
     return m_texDem;
@@ -1624,7 +1615,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
 
         for (const auto &k: keys) {
             if (hasTile(k) || hasSuperTile(k) >= 0) {
-                std::shared_ptr<CompressedTextureData> raster = std::move(viewer->m_newMapRasters[k]);
+                std::shared_ptr<OpenGLTextureData> raster = std::move(viewer->m_newMapRasters[k]);
                 viewer->m_newMapRasters.erase(k);
                 updateTileRaster(k, std::move(raster));
             }
