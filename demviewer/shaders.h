@@ -68,82 +68,25 @@ void main()
     fragColor = colors[lineID];
 }
 )";
-static constexpr char vertexShaderTile[] = R"(
+static constexpr char headerDEMFloat[] = R"(
 #version 450 core
 #define IMGFMT r32f
 layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
-uniform highp mat4 matrix;
-uniform vec2 resolution;
-
-uniform float elevationScale;
-uniform int quadSplitDirection;
-uniform float cOff; // coordinate offset, -0.5 || 0.5
-uniform int samplingStride;
-uniform int joined;
-
-flat out int subQuadID;
-flat out vec3 normal;
-smooth out vec2 texCoord;
-const int indices[12] = {2,1,0,0,3,2, 3,1,0,3,2,1}; // TODO: choose quad splitting orientation based on light direction?
-const vec4 vertices[4] = {
-     vec4(0,0,0,1)
-    ,vec4(0,1,0,1)
-    ,vec4(1,1,0,1)
-    ,vec4(1,0,0,1)
-};
-
-int sjoined = int(1.0 - cOff - 0.5); // 1 only when joined && !interactive
-int ijoined = joined * int(!bool(sjoined));
-int columnSize = int(resolution.y) - 1;
-int res = int(resolution.x);
-int splitDirectionOffset = quadSplitDirection * 6;
-int rowSize = (res - 1);
-float gridSpacing = 1.0 / float(res - 2 * sjoined); // because first and last are half-spaced in joined mode
-vec4 gridScaling = vec4(gridSpacing,
-                        gridSpacing,
-                        1.0, 1.0);
-
-vec4 neighbor(int id, int x, int y) {
-    vec4 res = vertices[indices[id]];
-    int iY = (columnSize - y - int(res.y)) * samplingStride + ijoined;
-    int iX = (x + int(res.x)) * samplingStride + ijoined;
-    const float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) / elevationScale;
-    res = (vec4(x + cOff / float(samplingStride),
-                y + cOff / float(samplingStride), elevation, 0) + res) * gridScaling;
-    res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
-    return res;
+float fetchDEM(ivec2 texelCoord) {
+    return imageLoad(dem, texelCoord).r;
 }
+)";
+static constexpr char headerDEMTerrarium[] = R"(
+#version 450 core
+#define IMGFMT rgba8
+layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
 
-void main()
-{
-    subQuadID = int(gl_VertexID / 6);
-    const int x = subQuadID % rowSize;
-    const int y = subQuadID / rowSize;
-
-//    const vec2 texCoordScaling = vec2(1.0 / resolution.x
-//                                     ,1.0 / resolution.y);
-
-    const int triangleID = (gl_VertexID / 3) % 2;
-    const int vertexID = (gl_VertexID % 6) + splitDirectionOffset;
-    vec4 vertex = neighbor(vertexID, x,y);
-    vec4 triVertex0 = neighbor(0 + 3 * triangleID + splitDirectionOffset, x,y);
-    vec4 triVertex1 = neighbor(1 + 3 * triangleID + splitDirectionOffset, x,y);
-    vec4 triVertex2 = neighbor(2 + 3 * triangleID + splitDirectionOffset, x,y);
-
-    const vec3 first = triVertex2.xyz - triVertex0.xyz;
-    const vec3 second = triVertex1.xyz - triVertex0.xyz;
-    normal = normalize(cross(first, second));
-
-
-//    texCoord = clamp(vec2(x + cOff, y + cOff) * texCoordScaling, vec2(0,0), vec2(1,1));
-    texCoord = vertex.xy;
-    gl_Position = matrix * vertex;
+float fetchDEM(ivec2 texelCoord) {
+    vec4 t = imageLoad(dem, texelCoord).r);
+    return (t.r * 256. + t.g + t.b * 0.00390625) - 32768.; // 1 / 256 = 0.00390625
 }
 )";
 static constexpr char vertexShaderTileJoinedDownsampled[] = R"(
-#version 450 core
-#define IMGFMT r32f
-layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
 uniform highp mat4 matrix;
 
 uniform vec2 resolution;
@@ -195,7 +138,7 @@ vec4 neighbor(int id, int x, int y) {
                      , 0
                      , int(heightmapResolution.x) - 1);
 
-    float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) * elevationScale;
+    float elevation =  max(-10000000, fetchDEM(ivec2(iX,iY))) * elevationScale;
     res = vec4(float(iX) + cOff,
                float(iiY) + cOff,
                elevation,

@@ -86,7 +86,7 @@ struct TileKeyRegistrar
         qRegisterMetaType<TileKey>("TileKey");
         qRegisterMetaType<std::shared_ptr<QImage>>("QImageShared");
         qRegisterMetaType<std::shared_ptr<QByteArray>>("QByteArrayShared");
-        qRegisterMetaType<std::shared_ptr<Heightmap>>("HeightmapShared");
+        qRegisterMetaType<std::shared_ptr<HeightmapBase>>("HeightmapShared");
         qRegisterMetaType<std::shared_ptr<CompressedTextureData>>("CompressedTextureDataShared");
     }
 };
@@ -465,6 +465,11 @@ void Heightmap::setElevation(int x, int y, float e)
     elevations[y*m_size.width()+x] = e;
 }
 
+bool Heightmap::bordersComputed() const
+{
+    return m_hasBorders;
+}
+
 
 MapFetcher::MapFetcher(QObject *parent)
 : QObject(*new MapFetcherPrivate, parent)
@@ -523,19 +528,20 @@ DEMFetcher::DEMFetcher(QObject *parent, bool borders)
     d->m_borders = borders;
 }
 
-std::shared_ptr<Heightmap> DEMFetcher::heightmap(quint64 id, const TileKey k)
+std::shared_ptr<HeightmapBase> DEMFetcher::heightmap(quint64 id,
+                                                     const TileKey k)
 {
     Q_D(DEMFetcher);
     const auto it = d->m_heightmapCache[id].find(k);
     if (it != d->m_heightmapCache[id].end()) {
-        std::shared_ptr<Heightmap> res = std::move(it->second);
+        std::shared_ptr<HeightmapBase> res = std::move(it->second);
         d->m_heightmapCache[id].erase(it);
         return res;
     }
     return nullptr;
 }
 
-std::shared_ptr<Heightmap> DEMFetcher::heightmapCoverage(quint64 id)
+std::shared_ptr<HeightmapBase> DEMFetcher::heightmapCoverage(quint64 id)
 {
     Q_D(DEMFetcher);
     auto it = d->m_heightmapCoverages.find(id);
@@ -554,14 +560,17 @@ void DEMFetcher::setBorders(bool borders)
     d->m_borders = borders; // FIXME: this must not happen while processing a request!!
 }
 
-void DEMFetcher::onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h)
+void DEMFetcher::onInsertHeightmap(quint64 id,
+                                   const TileKey k,
+                                   std::shared_ptr<HeightmapBase> h)
 {
     Q_D(DEMFetcher);
     d->m_heightmapCache[id][k] = std::move(h);
     emit heightmapReady(id, k);
 }
 
-void DEMFetcher::onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h)
+void DEMFetcher::onInsertHeightmapCoverage(quint64 id,
+                                           std::shared_ptr<HeightmapBase> h)
 {
     Q_D(DEMFetcher);
     d->m_heightmapCoverages[id] = std::move(h);

@@ -599,13 +599,13 @@ DEMFetcherWorker *NetworkIOManager::getDEMFetcherWorker(DEMFetcher *f) {
         w = new DEMFetcherWorker(this, f, m_worker, f->d_func()->m_borders);
         m_demFetcher2Worker.insert({f, w});
         connect(w,
-                SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<Heightmap>)),
+                SIGNAL(heightmapReady(quint64,TileKey,std::shared_ptr<HeightmapBase>)),
                 f,
-                SLOT(onInsertHeightmap(quint64,TileKey,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+                SLOT(onInsertHeightmap(quint64,TileKey,std::shared_ptr<HeightmapBase>)), Qt::QueuedConnection);
         connect(w,
-                SIGNAL(heightmapCoverageReady(quint64,std::shared_ptr<Heightmap>)),
+                SIGNAL(heightmapCoverageReady(quint64,std::shared_ptr<HeightmapBase>)),
                 f,
-                SLOT(onInsertHeightmapCoverage(quint64,std::shared_ptr<Heightmap>)), Qt::QueuedConnection);
+                SLOT(onInsertHeightmapCoverage(quint64,std::shared_ptr<HeightmapBase>)), Qt::QueuedConnection);
         connect(w,
                 SIGNAL(requestHandlingFinished(quint64)),
                 f,
@@ -737,7 +737,9 @@ void DEMFetcherWorker::onCoverageReady(quint64 id,  std::shared_ptr<QImage> i)
     d->m_worker->schedule(h);
 }
 
-void DEMFetcherWorker::onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h)
+void DEMFetcherWorker::onInsertHeightmap(quint64 id,
+                                         const TileKey k,
+                                         std::shared_ptr<HeightmapBase> h)
 {
     Q_D(DEMFetcherWorker);
     emit heightmapReady(id, k, std::move(h));
@@ -746,7 +748,8 @@ void DEMFetcherWorker::onInsertHeightmap(quint64 id, const TileKey k, std::share
     }
 }
 
-void DEMFetcherWorker::onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h)
+void DEMFetcherWorker::onInsertHeightmapCoverage(quint64 id,
+                                                 std::shared_ptr<HeightmapBase> h)
 {
     emit heightmapCoverageReady(id, std::move(h));
     emit requestHandlingFinished(id);

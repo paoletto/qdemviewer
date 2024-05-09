@@ -580,7 +580,7 @@ void DEMReadyHandler::process()
         qWarning() << "NULL image in DEM Generation!";
         return;
     }
-    std::shared_ptr<Heightmap> h =
+    std::shared_ptr<HeightmapBase> h =
             std::make_shared<Heightmap>(Heightmap::fromImage(*m_demImage, m_neighbors));
 
     if (m_coverage)

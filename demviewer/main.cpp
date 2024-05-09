@@ -500,12 +500,13 @@ struct Tile
         return m_key < o.m_key;
     }
 
-    void setDem(std::shared_ptr<Heightmap> dem) {
+    void setDem(std::shared_ptr<HeightmapBase> dem) {
         // TODO: do this in a better way
         if (m_texDem && m_hasBorders)
             return;
-        m_dem = std::move(*dem);
-        m_resolution = m_dem.size();
+        m_dem = std::move(dem);
+        if (m_dem)
+            m_resolution = m_dem->size();
     }
 
     void setMap(std::shared_ptr<CompressedTextureData> map) {
@@ -575,8 +576,6 @@ struct Tile
               const float brightness,
               const int tessellationDirection,
               const QVector3D &lightDirection,
-              bool interactive,
-              bool joinTiles,
               bool autoStride,
               int downsamplingRate,
               bool geoReferenced);
@@ -637,7 +636,7 @@ struct Tile
     quint64 m_rasterBytes{0};
     bool m_hasBorders{false};
     bool m_initialized{false};
-    Heightmap m_dem;
+    std::shared_ptr<HeightmapBase> m_dem;
     QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
     std::shared_ptr<CompressedTextureData> m_map;
@@ -662,10 +661,12 @@ class TileRenderer : public QQuickFramebufferObject::Renderer
 protected:
     GLint m_maxTexSize{0};
     GLint m_maxTexLayers{0};
-    QScopedPointer<QOpenGLShaderProgram> m_shader;
-    QScopedPointer<QOpenGLShaderProgram> m_shaderTextured;
+//    QScopedPointer<QOpenGLShaderProgram> m_shader;
+//    QScopedPointer<QOpenGLShaderProgram> m_shaderTextured;
     QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextured;
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTexturedTerrarium;
     QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextureArrayd;
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextureArraydTerrarium;
     QScopedPointer<QOpenGLTexture> m_texWhite;
 
 public:
@@ -682,7 +683,7 @@ public:
     }
 
     void updateTileDem( const TileKey k,
-                        std::shared_ptr<Heightmap> dem) {
+                        std::shared_ptr<HeightmapBase> dem) {
 
         auto t = m_tiles.find(k);
         if (t == m_tiles.end()) {
@@ -804,7 +805,7 @@ protected:
         f->glDepthMask(true);
 
 
-        const bool fast = true;
+        constexpr const bool fast = true;
 
         if (!m_geoReferenced)
             Origin::draw(toMatrix4x4(m_arcballTransform), m_centerOffset, 1);
@@ -842,7 +843,6 @@ protected:
 //                           m_brightness,
 //                           m_tessellationDirection,
 //                           m_lightDirection,
-//                           fast,
 //                           m_joinTiles,
 //                           m_autoRefinement,
 //                           m_downsamplingRate,
@@ -861,8 +861,7 @@ protected:
                    m_brightness,
                    m_tessellationDirection,
                    m_lightDirection,
-                   fast,
-                   m_joinTiles,
+//                   m_joinTiles,
                    m_autoRefinement,
                    m_downsamplingRate,
                    m_geoReferenced);
@@ -931,9 +930,9 @@ public:
         setFlag(ItemHasContents);
         setTextureFollowsItemSize(true);
         setMirrorVertically(true);
-        m_updateTimer.setInterval(1800);
-        connect(&m_updateTimer, &QTimer::timeout, this, &TerrainViewer::fullUpdate);
-        m_updateTimer.setSingleShot(true);
+//        m_updateTimer.setInterval(1800);
+//        connect(&m_updateTimer, &QTimer::timeout, this, &TerrainViewer::fullUpdate);
+//        m_updateTimer.setSingleShot(true);
         m_provisioningUpdateTimer.setInterval(800);
         connect(&m_provisioningUpdateTimer, &QTimer::timeout, this, &TerrainViewer::interactiveUpdate);
         m_provisioningUpdateTimer.setSingleShot(true);
@@ -1208,13 +1207,13 @@ protected slots:
     void interactiveUpdate() {
         m_interactive = true;
         update();
-        m_updateTimer.start();
+//        m_updateTimer.start();
     }
 
-    void fullUpdate() {
-        m_interactive = false;
-        update();
-    }
+//    void fullUpdate() {
+//        m_interactive = false;
+//        update();
+//    }
 
     void onTransformationChanged() {
         interactiveUpdate();
@@ -1276,10 +1275,10 @@ private:
     bool m_geoReferenced{false};
     int m_downsamplingRate{8};
     QPointF m_lightDirection;
-    QTimer m_updateTimer;
+//    QTimer m_updateTimer;
     QTimer m_provisioningUpdateTimer;
 
-    std::map<TileKey, std::shared_ptr<Heightmap>> m_newTiles;
+    std::map<TileKey, std::shared_ptr<HeightmapBase>> m_newTiles;
     std::map<TileKey, std::shared_ptr<CompressedTextureData>> m_newMapRasters;
 
     friend class TileRenderer;
@@ -1366,28 +1365,28 @@ public:
 };
 
 QSharedPointer<QOpenGLTexture> Tile::demTexture() {
-    if (!m_dem.size().isEmpty() /*&& !m_texDem*/) {
-        Heightmap &h = m_dem;
-        m_hasBorders = h.m_hasBorders;
+    if (m_dem && !m_dem->size().isEmpty() /*&& !m_texDem*/) {
+        HeightmapBase &h = *m_dem.get();
+        m_hasBorders = h.bordersComputed();
 
-        int maxHSize = std::max(h.m_size.width(), h.m_size.height());
+        int maxHSize = std::max(h.size().width(), h.size().height());
         if (m_renderer.m_maxTexSize && maxHSize > m_renderer.m_maxTexSize) {
             h.rescale(m_renderer.m_maxTexSize);
             // h.rescale(QSize(32,32));
             m_resolution = h.size();
         }
 
-        if (!m_texDem || QSize(m_texDem->width(), m_texDem->height()) != h.m_size) {
+        if (!m_texDem || QSize(m_texDem->width(), m_texDem->height()) != h.size()) {
             m_texDem.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
             m_texDem->setFormat(QOpenGLTexture::R32F);
-            m_texDem->setSize(h.m_size.width(), h.m_size.height());
+            m_texDem->setSize(h.size().width(), h.size().height());
             m_texDem->allocateStorage(QOpenGLTexture::Red, QOpenGLTexture::Float32);
         }
         m_texDem->setData(QOpenGLTexture::Red,
                           QOpenGLTexture::Float32,
-                          (const void *) &(h.elevations.front()));
+        /* FIXME!!!! */   (const void *) &(static_cast<Heightmap &>(h).elevations.front()));
 
-        m_dem = Heightmap();
+        m_dem.reset();
     }
     return m_texDem;
 }
@@ -1399,51 +1398,75 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
           const float brightness,
           const int tessellationDirection,
           const QVector3D &lightDirection,
-          bool interactive,
-          bool joinTiles,
+//          bool joinTiles,
           bool autoStride,
           int downsamplingRate,
           bool geoReferenced)
 {
+    constexpr const bool interactive = true;
+    constexpr const bool joinTiles = true;
     QOpenGLFunctions *f = QOpenGLContext::currentContext()->functions();
 
-    if (!m_renderer.m_shader) {
+    if (!m_renderer.m_shaderJoinedDownsampledTextured) {
         f->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_renderer.m_maxTexSize);
         f->glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &m_renderer.m_maxTexLayers);
 
-        m_renderer.m_shader.reset(new QOpenGLShaderProgram);
-        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                          QByteArray(vertexShaderTile));
-        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                          QByteArray(fragmentShaderTile));
-        m_renderer.m_shader->link();
-        m_renderer.m_shader->setObjectName("shader");
+//        m_renderer.m_shader.reset(new QOpenGLShaderProgram);
+//        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
+//                                          QByteArray(vertexShaderTile));
+//        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
+//                                          QByteArray(fragmentShaderTile));
+//        m_renderer.m_shader->link();
+//        m_renderer.m_shader->setObjectName("shader");
 
-        m_renderer.m_shaderTextured.reset(new QOpenGLShaderProgram);
-        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                          QByteArray(vertexShaderTile));
-        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                          QByteArray(fragmentShaderTileTextured));
-        m_renderer.m_shaderTextured->link();
-        m_renderer.m_shaderTextured->setObjectName("shaderTextured");
+//        m_renderer.m_shaderTextured.reset(new QOpenGLShaderProgram);
+//        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
+//                                          QByteArray(vertexShaderTile));
+//        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
+//                                          QByteArray(fragmentShaderTileTextured));
+//        m_renderer.m_shaderTextured->link();
+//        m_renderer.m_shaderTextured->setObjectName("shaderTextured");
+
+        QByteArray baVertex = QByteArray(headerDEMFloat) + QByteArray(vertexShaderTileJoinedDownsampled);
+        QByteArray baVertexTerrarium = QByteArray(headerDEMTerrarium) + QByteArray(vertexShaderTileJoinedDownsampled);
+
 
         m_renderer.m_shaderJoinedDownsampledTextured.reset(new QOpenGLShaderProgram);
         // Create shaders
         m_renderer.m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                          QByteArray(vertexShaderTileJoinedDownsampled));
+                                          baVertex);
         m_renderer.m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                           QByteArray(fragmentShaderTileTextured));
         m_renderer.m_shaderJoinedDownsampledTextured->link();
         m_renderer.m_shaderJoinedDownsampledTextured->setObjectName("shaderJoinedDownsampledTextured");
 
+
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          baVertex);
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextured));
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->link();
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->setObjectName("shaderJoinedDownsampledTexturedTerrarium");
+
+
         m_renderer.m_shaderJoinedDownsampledTextureArrayd.reset(new QOpenGLShaderProgram);
-        // Create shaders
         m_renderer.m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                          QByteArray(vertexShaderTileJoinedDownsampled));
+                                          baVertex);
         m_renderer.m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                           QByteArray(fragmentShaderTileTextureArrayd));
         m_renderer.m_shaderJoinedDownsampledTextureArrayd->link();
         m_renderer.m_shaderJoinedDownsampledTextureArrayd->setObjectName("shaderJoinedDownsampledTextureArrayd");
+
+
+        m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          baVertexTerrarium);
+        m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextureArrayd));
+        m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->link();
+        m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->setObjectName("shaderJoinedDownsampledTextureArraydTerrarium");
+
 
         m_renderer.m_texWhite.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
         m_renderer.m_texWhite->setMaximumAnisotropy(16);
@@ -1457,7 +1480,7 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
         white.setPixelColor(1,1, QColorConstants::White);
         m_renderer.m_texWhite->setData(white);
     }
-    if (!m_renderer.m_shader) {
+    if (!m_renderer.m_shaderJoinedDownsampledTextured) {
         qWarning() << "Failed creating shader!";
         return;
     }
@@ -1475,7 +1498,7 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
     const QMatrix4x4 m = toMatrix4x4(dm);
     auto rasterTxt = mapTexture();
     auto demTxt = demTexture();
-#if 1
+
     const float tileSize = screenSpaceTileSize(dm);
 
     if (tileSize < 0)
@@ -1486,19 +1509,14 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
 
     const double tileInnerSamples = (demTxt) ? demTxt->width() - 2 : 256.;
     int idealRate = qMax<int>(1, tileInnerSamples / tileSizeOnScreen);
-#else
-    int idealRate = 16;
-#endif
 
-    // TODO: streamline, fix, deduplicate
-    QOpenGLShaderProgram *shader = (rasterTxt) ? m_renderer.m_shaderTextured.get()
-                                               : m_renderer.m_shader.get();
-    if (interactive && joinTiles) {
-        if (rasterTxt && rasterTxt->layers() > 1)
-            shader = m_renderer.m_shaderJoinedDownsampledTextureArrayd.get();
-        else
-            shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
+    QOpenGLShaderProgram *shader;
+    if (rasterTxt && rasterTxt->layers() > 1) {
+        shader = m_renderer.m_shaderJoinedDownsampledTextureArrayd.get();
+    } else {
+        shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
     }
+
 
     QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
     ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
@@ -1586,7 +1604,7 @@ void TileRenderer::synchronize(QQuickFramebufferObject *item)
         m_downsamplingRate = viewer->m_downsamplingRate;
         m_geoReferenced = viewer->m_geoReferenced;
 
-        std::map<TileKey, std::shared_ptr<Heightmap>> newTiles;
+        std::map<TileKey, std::shared_ptr<HeightmapBase>> newTiles;
         newTiles.swap(viewer->m_newTiles);
 
         if ((   newTiles.size()

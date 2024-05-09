@@ -37,7 +37,7 @@
 #include <unordered_set>
 #include <private/qtexturefiledata_p.h>
 
-using HeightmapCache = std::unordered_map<TileKey, std::shared_ptr<Heightmap>>;
+using HeightmapCache = std::unordered_map<TileKey, std::shared_ptr<HeightmapBase>>;
 using TileNeighborsMap = std::unordered_map<TileKey,
                             std::pair< Heightmap::Neighbors,
                                        std::map<Heightmap::Neighbor, std::shared_ptr<QImage>>>>;
@@ -217,7 +217,7 @@ public:
                             bool clip) override;
 
     std::map<quint64, HeightmapCache> m_heightmapCache;
-    std::map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
+    std::map<quint64, std::shared_ptr<HeightmapBase>> m_heightmapCoverages;
     bool m_borders{true};
 };
 
@@ -377,18 +377,27 @@ public:
     DEMFetcherWorker(QObject *parent, DEMFetcher *f, QSharedPointer<ThreadedJobQueue> worker, bool borders=false);
     ~DEMFetcherWorker() override = default;
 
-    std::shared_ptr<Heightmap> heightmap(const TileKey k);
-    std::shared_ptr<Heightmap> heightmapCoverage(quint64 id);
+    std::shared_ptr<HeightmapBase> heightmap(const TileKey k);
+    std::shared_ptr<HeightmapBase> heightmapCoverage(quint64 id);
 
 signals:
-    void heightmapReady(quint64 id, const TileKey k, std::shared_ptr<Heightmap>);
-    void heightmapCoverageReady(quint64 id, std::shared_ptr<Heightmap>);
+    void heightmapReady(quint64 id,
+                        const TileKey k,
+                        std::shared_ptr<HeightmapBase>);
+    void heightmapCoverageReady(quint64 id,
+                                std::shared_ptr<HeightmapBase>);
 
 protected slots:
-    void onTileReady(quint64 id, const TileKey k,  std::shared_ptr<QImage> i);
-    void onCoverageReady(quint64 id,  std::shared_ptr<QImage> i);
-    void onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h);
-    void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
+    void onTileReady(quint64 id,
+                     const TileKey k,
+                     std::shared_ptr<QImage> i);
+    void onCoverageReady(quint64 id,
+                         std::shared_ptr<QImage> i);
+    void onInsertHeightmap(quint64 id,
+                           const TileKey k,
+                           std::shared_ptr<HeightmapBase> h);
+    void onInsertHeightmapCoverage(quint64 id,
+                                   std::shared_ptr<HeightmapBase> h);
 
 protected:
 //    DEMFetcherWorker(DEMFetcherWorkerPrivate &dd, QObject *parent = nullptr);
@@ -833,8 +842,11 @@ public:
     }
 
 signals:
-    void insertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> i);
-    void insertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> i);
+    void insertHeightmap(quint64 id,
+                         const TileKey k,
+                         std::shared_ptr<HeightmapBase> i);
+    void insertHeightmapCoverage(quint64 id,
+                                 std::shared_ptr<HeightmapBase> i);
 
 public slots:
     void process() override;

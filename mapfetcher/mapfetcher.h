@@ -79,7 +79,14 @@ struct NetworkConfiguration {
     static QAtomicInt logNetworkRequests;
 };
 
-struct Heightmap {
+struct HeightmapBase {
+    virtual ~HeightmapBase() = default;
+    virtual void rescale(int) {}
+    virtual QSize size() const = 0;
+    virtual bool bordersComputed() const = 0;
+};
+
+struct Heightmap : public HeightmapBase {
     enum Neighbor {
         Top = 1 << 0,
         Bottom = 1 << 1,
@@ -90,19 +97,21 @@ struct Heightmap {
         BottomLeft = 1 << 6,
         BottomRight = 1 << 7
     };
+    ~Heightmap() override = default;
     Q_DECLARE_FLAGS(Neighbors, Neighbor)
 
     static Heightmap fromImage(const QImage &dem,
                                const std::map<Neighbor, std::shared_ptr<QImage> > &borders = {});
 
     void rescale(QSize size);
-    void rescale(int size);
+    void rescale(int size) override;
     void setSize(QSize size, float initialValue = .0f);
-    QSize size() const;
+    QSize size() const override;
     void printMinMax() const;
 
     float elevation(int x, int y) const;
     void setElevation(int x, int y, float e);
+    bool bordersComputed() const override;
 
     QSize m_size;
     std::vector<float> elevations;
@@ -122,6 +131,11 @@ struct CompressedTextureData {
     virtual bool hasCompressedData() const = 0;
 
     static bool isFormatCompressed(GLint format);
+};
+
+struct TerrariumHeightmapData : public CompressedTextureData, public  HeightmapBase {
+
+
 };
 
 class MapFetcherPrivate;
@@ -210,8 +224,8 @@ public:
     DEMFetcher(QObject *parent, bool borders=false);
     ~DEMFetcher() override = default;
 
-    std::shared_ptr<Heightmap> heightmap(quint64 id, const TileKey k);
-    std::shared_ptr<Heightmap> heightmapCoverage(quint64 id);
+    std::shared_ptr<HeightmapBase> heightmap(quint64 id, const TileKey k);
+    std::shared_ptr<HeightmapBase> heightmapCoverage(quint64 id);
 
     void setBorders(bool borders);
 
@@ -220,8 +234,11 @@ signals:
     void heightmapCoverageReady(quint64 id);
 
 protected slots:
-    void onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h);
-    void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
+    void onInsertHeightmap(quint64 id,
+                           const TileKey k,
+                           std::shared_ptr<HeightmapBase> h);
+    void onInsertHeightmapCoverage(quint64 id,
+                                   std::shared_ptr<HeightmapBase> h);
 
 protected:
     DEMFetcher(DEMFetcherPrivate &dd, QObject *parent = nullptr);
@@ -271,10 +288,41 @@ friend class Raster2ASTCHandler;
 friend class NetworkIOManager;
 };
 
+//class ASTCDEMFetcherPrivate;
+//class ASTCDEMFetcher : public DEMFetcher {
+//    Q_DECLARE_PRIVATE(ASTCDEMFetcher)
+//    Q_OBJECT
+
+//public:
+//    ASTCDEMFetcher(QObject *parent, bool borders=false);
+//    ~ASTCDEMFetcher() override = default;
+
+//    std::shared_ptr<Heightmap> heightmap(quint64 id, const TileKey k);
+//    std::shared_ptr<Heightmap> heightmapCoverage(quint64 id);
+
+//    void setBorders(bool borders);
+
+//signals:
+//    void heightmapReady(quint64 id, const TileKey k);
+//    void heightmapCoverageReady(quint64 id);
+
+//protected slots:
+//    void onInsertHeightmap(quint64 id, const TileKey k, std::shared_ptr<Heightmap> h);
+//    void onInsertHeightmapCoverage(quint64 id, std::shared_ptr<Heightmap> h);
+
+//protected:
+//    ASTCDEMFetcher(ASTCDEMFetcherPrivate &dd, QObject *parent = nullptr);
+
+//private:
+//    Q_DISABLE_COPY(ASTCDEMFetcher)
+//friend class DEMReadyHandler;
+//friend class NetworkIOManager;
+//};
+
 Q_DECLARE_METATYPE(TileKey)
 Q_DECLARE_METATYPE(std::shared_ptr<QImage>)
 Q_DECLARE_METATYPE(std::shared_ptr<QByteArray>)
 Q_DECLARE_METATYPE(std::shared_ptr<CompressedTextureData>)
-Q_DECLARE_METATYPE(std::shared_ptr<Heightmap>)
+Q_DECLARE_METATYPE(std::shared_ptr<HeightmapBase>)
 
 #endif
