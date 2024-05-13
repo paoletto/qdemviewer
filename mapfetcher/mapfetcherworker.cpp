@@ -431,9 +431,9 @@ void ThrottledNetworkFetcher::request(const QUrl &u,
         reply->setProperty("ID",id);
     reply->setProperty("c", coverage);
     if (destFinished && onFinishedSlot)
-        connect(reply, SIGNAL(finished()), destFinished, onFinishedSlot);
+        connect(reply, SIGNAL(finished()), destFinished, onFinishedSlot, Qt::QueuedConnection);
     if (destError && onErrorSlot)
-        connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), destError, onErrorSlot);
+        connect(reply, SIGNAL(errorOccurred(QNetworkReply::NetworkError)), destError, onErrorSlot, Qt::QueuedConnection);
     if (!m_progressSender || coverage) { // TODO: find a more engineered way to handle coverage requests progress driving?
         connect(reply, &QNetworkReply::finished, this, &ThrottledNetworkFetcher::onFinished);
     } else {
