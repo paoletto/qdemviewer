@@ -89,13 +89,94 @@ public:
             QObject::connect(client.data(), &DbClient::rowReceived,
                              this, &Client::onASTCRowReceived);
         SQLiteManager::initDb(dbPath, {});
+
+        // disable sync from local cache
+        auto res = SQLiteManager::instance().sqliteSelect(querySyncOff.toMap());
+        res = SQLiteManager::instance().sqliteSelect(queryJournalOff.toMap());
+
+        if (!m_timestamp.isValid()) {
+            QLatin1String q;
+            if (m_network) {
+                static constexpr char clientQuery[] = R"(
+SELECT MAX(lastAccess) from Document
+                )";
+                q = QLatin1String(clientQuery);
+            } else {
+                static constexpr char clientQuery[] = R"(
+SELECT MAX(ts) from Tile
+                )";
+                 q = QLatin1String(clientQuery);
+            }
+
+            QVariantMap clientq{{"query" , q},
+                                {"args" , QVariantMap()},
+                                {"query_id" , 123}};
+
+
+            res = SQLiteManager::instance().sqliteSelect(clientq);
+            m_timestamp =
+                    res.value("query_result").toList().first().toMap().value("MAX(ts)").toDateTime();
+
+            if (!m_timestamp.isValid())
+                qFatal("Invalid m_timestamp in updateASTC");
+        }
     }
+
+    Query querySyncOff{"PRAGMA synchronous = OFF",
+                {},
+                "",
+                1};
+
+    Query queryJournalOff{"PRAGMA journal_mode = OFF",
+                {},
+                "",
+                2};
+
+    qlonglong maxQuerySize{100000};
 
     ~Client() override {
 
     }
 
-    void updateASTC()
+    void retrieveRowCountNetwork()
+    {
+        static constexpr char queryString[] = R"(
+SELECT count(*)
+FROM Document
+WHERE lastAccess > :clientmaxlastaccess
+)";
+//        auto res = SQLiteManager::instance().sqliteSelect(querySyncOff.toMap());
+//        res = SQLiteManager::instance().sqliteSelect(queryJournalOff.toMap());
+
+        Query query{queryString,
+                    QVariantMap{{":clientmaxlastaccess", m_timestamp}},
+                    "",
+                    41};
+
+        client->submitSelect(querySyncOff);
+        client->submitSelect(queryJournalOff);
+        client->submitSelectProgressive(query);
+    }
+
+    void retrieveRowCountASTC()
+    {
+        static constexpr char queryString[] = R"(
+SELECT count(*)
+FROM Tile
+WHERE ts > :clientmaxts
+)";
+
+        Query query{queryString,
+                    QVariantMap{{":clientmaxts", m_timestamp}},
+                    "",
+                    41};
+
+        client->submitSelect(querySyncOff);
+        client->submitSelect(queryJournalOff);
+        client->submitSelectProgressive(query);
+    }
+
+    void updateASTC(size_t iteration)
     {
         if (m_network)
             qFatal("Error: Client configured for updating network cache!");
@@ -109,40 +190,13 @@ SELECT tileHash, blockX, blockY, quality, width, height, tile, ts, x, y, z, ROWI
 FROM Tile
 WHERE ts > :clientmaxts
 ORDER BY ts ASC
+LIMIT 100000
+OFFSET :toskip
 )";
-
-        Query querySyncOff{"PRAGMA synchronous = OFF",
-                    {},
-                    "",
-                    1};
-
-        Query queryJournalOff{"PRAGMA journal_mode = OFF",
-                    {},
-                    "",
-                    2};
-
-        // disable sync from local cache
-        auto res = SQLiteManager::instance().sqliteSelect(querySyncOff.toMap());
-        res = SQLiteManager::instance().sqliteSelect(queryJournalOff.toMap());
-
-        static constexpr char clientQuery[] = R"(
-SELECT MAX(ts) from Tile
-)";
-        if (!m_timestamp.isValid()) {
-            QVariantMap clientq{{"query" , clientQuery},
-                                {"args" , QVariantMap()},
-                                {"query_id" , 123}};
-
-            auto res = SQLiteManager::instance().sqliteSelect(clientq);
-            m_timestamp =
-                    res.value("query_result").toList().first().toMap().value("MAX(ts)").toDateTime();
-
-            if (!m_timestamp.isValid())
-                qFatal("Invalid m_timestamp in updateASTC");
-        }
 
         Query query{queryString,
-                    QVariantMap{{":clientmaxts", m_timestamp}},
+                    QVariantMap{{":clientmaxts", m_timestamp}
+                               ,{":toskip", iteration * maxQuerySize}},
                     "",
                     42};
 
@@ -151,7 +205,7 @@ SELECT MAX(ts) from Tile
         client->submitSelectProgressive(query);
     }
 
-    void updateNetwork()
+    void updateNetwork(size_t iteration)
     {
         if (!m_network)
             qFatal("Error: Client configured for updating astc cache!");
@@ -165,39 +219,13 @@ SELECT url, metadata, data, lastAccess, ROWID
 FROM Document
 WHERE lastAccess > :clientmaxlastaccess
 ORDER BY lastAccess ASC
+LIMIT 100000
+OFFSET :toskip
 )";
-
-        Query querySyncOff{"PRAGMA synchronous = OFF",
-                    {},
-                    "",
-                    1};
-        Query queryJournalOff{"PRAGMA journal_mode = OFF",
-                    {},
-                    "",
-                    2};
-
-        // disable sync from local cache
-        auto res = SQLiteManager::instance().sqliteSelect(querySyncOff.toMap());
-        res = SQLiteManager::instance().sqliteSelect(queryJournalOff.toMap());
-
-        static constexpr char clientQuery[] = R"(
-SELECT MAX(lastAccess) from Document
-)";
-        if (!m_timestamp.isValid()) {
-            QVariantMap clientq{{"query" , clientQuery},
-                                {"args" , QVariantMap()},
-                                {"query_id" , 123}};
-
-            auto res = SQLiteManager::instance().sqliteSelect(clientq);
-            m_timestamp =
-                    res.value("query_result").toList().first().toMap().value("MAX(lastAccess)").toDateTime();
-
-            if (!m_timestamp.isValid())
-                qFatal("Invalid m_timestamp in updateNetwork");
-        }
 
         Query query{queryString,
-                    QVariantMap{{":clientmaxlastaccess", m_timestamp}},
+                    QVariantMap{{":clientmaxlastaccess", m_timestamp}
+                               ,{":toskip", iteration * maxQuerySize}},
                     "",
                     42};
 
@@ -223,13 +251,34 @@ public slots:
     void update() {
         qDebug() << "Updating";
         if (m_network)
-            updateNetwork();
+            retrieveRowCountNetwork();
         else
-            updateASTC();
+            retrieveRowCountASTC();
     }
 
     void onNetworkRowReceived(const QVariantMap data) {
         static quint64 receivedNetworkRowsCount = 0;
+        const auto queryId = data["query_id"].toInt();
+        if (queryId == 41) {
+            const auto row = data["row"].toMap();
+            auto count = row["count(*)"].toLongLong();
+            qInfo() << "Retrieving "<<count<< " rows...";
+
+            size_t iterations = (count / maxQuerySize) + 1;
+            if (!count)
+                qFatal("Nothing to update. Exiting");
+            if (!(count % maxQuerySize))
+                --iterations;
+            m_iterations = iterations;
+
+            if (m_network)
+                return updateNetwork(0);
+            else
+                return updateASTC(0);
+        }
+
+
+
         const auto row = data["row"].toMap();
         static constexpr char insertQuery[] = R"(
 INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, :url, :lastaccess)
@@ -242,16 +291,48 @@ INSERT INTO Document(metadata, data, url, lastAccess) VALUES (:metadata, :data, 
                             {"query_id" , 123}};
 
         auto res = SQLiteManager::instance().sqliteSelect(insertq);
-        if (!res["error"].isNull())
-            qWarning() << "onNetworkRowReceived: " << res["error"];
+        if (!res["error"].isNull()) {
+            if (!res["error"].toString().startsWith("UNIQUE constraint failed"))
+                qWarning() << "onNetworkRowReceived: " << res["error"];
+        }
         if (!(++receivedNetworkRowsCount % 1000))
             qInfo() << "onNetworkRowReceived "<< receivedNetworkRowsCount
                             << " ROWID: "<< row["rowid"]
                             << " TS: "<<row["lastAccess"].toDateTime().toString();
+
+
+        ++m_rowsReceived;
+        if (!(m_rowsReceived % maxQuerySize)) {
+            size_t nextIter = (m_rowsReceived / maxQuerySize);
+            if (nextIter >= m_iterations)
+                qFatal("Query finished. exiting.");
+
+            updateNetwork(nextIter);
+        }
     }
 
     void onASTCRowReceived(const QVariantMap data) {
         static quint64 receivedASTCRowsCount = 0;
+
+        const auto queryId = data["query_id"].toInt();
+        if (queryId == 41) {
+            const auto row = data["row"].toMap();
+            auto count = row["count(*)"].toLongLong();
+            qInfo() << "Retrieving "<<count<< " rows...";
+
+            size_t iterations = (count / maxQuerySize) + 1;
+            if (!count)
+                qFatal("Nothing to update. Exiting");
+            if (!(count % maxQuerySize))
+                --iterations;
+            m_iterations = iterations;
+
+            if (m_network)
+                return updateNetwork(0);
+            else
+                return updateASTC(0);
+        }
+
         const auto row = data["row"].toMap();
         static constexpr char insertQuery[] = R"(
 INSERT INTO Tile(tileHash, blockX, blockY, quality, width, height, tile, ts, x, y, z)
@@ -273,19 +354,31 @@ VALUES (:tileHash, :blockX, :blockY, :quality, :width, :height, :tile, :ts, :x, 
                                 321};
 
         auto res = SQLiteManager::instance().sqliteSelect(insertq.toMap());
-        if (!res["error"].isNull())
-            qWarning() << "onASTCRowReceived: " << res["error"];
+        if (!res["error"].isNull()) {
+            if (!res["error"].toString().startsWith("UNIQUE constraint failed"))
+                qWarning() << "onASTCRowReceived: " << res["error"];
+        }
         if (!(++receivedASTCRowsCount % 1000) || receivedASTCRowsCount == 1)
             qInfo() << "onASTCRowReceived "<< receivedASTCRowsCount
                             << " ROWID: "<< row["rowid"].toLongLong()
                             << " TS: "<<row["ts"].toDateTime().toString(Qt::ISODate);
 
+        ++m_rowsReceived;
+        if (!(m_rowsReceived % maxQuerySize)) {
+            size_t nextIter = (m_rowsReceived / maxQuerySize) ;
+            if (nextIter >= m_iterations)
+                qFatal("Query finished. exiting.");
+
+            updateASTC(nextIter);
+        }
     }
 
 public:
     QScopedPointer<DbClient> client;
     bool m_initialized{false};
     bool m_network{true};
+    size_t m_iterations{0};
+    qulonglong m_rowsReceived{0};
     QDateTime m_timestamp;
 };
 

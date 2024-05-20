@@ -507,7 +507,8 @@ QVariantMap SQLiteManager::sqliteSelect(const QVariantMap data) {
     }
 
     if (!query.exec()) {
-        qDebug() << "query " << queryString << "failed!" << query.lastError() <<  __FILE__ << __LINE__;
+        if (!query.lastError().text().startsWith("UNIQUE constraint failed"))
+            qDebug() << "query " << queryString << "failed!" << query.lastError() <<  __FILE__ << __LINE__;
         return {{"error" , query.lastError().text() }, {"query_id", data.value("query_id")}};
     }
 
@@ -537,7 +538,8 @@ QVariantMap SQLiteManager::sqliteInsert(const QVariantMap data)
     }
 
     if (!query.exec()) {
-        qDebug() << "query " << queryString << "failed!" << query.lastError() <<  __FILE__ << __LINE__;
+        if (!query.lastError().text().startsWith("UNIQUE constraint failed"))
+            qDebug() << "query " << queryString << "failed!" << query.lastError() <<  __FILE__ << __LINE__;
         return {{"error" , query.lastError().text() }, {"query_id", data.value("query_id")}};
     }
 
