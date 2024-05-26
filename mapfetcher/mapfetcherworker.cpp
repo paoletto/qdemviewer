@@ -538,6 +538,22 @@ void NetworkIOManager::requestCoverage(ASTCFetcher *f,
     w->requestCoverage(requestId, crds, zoom, clip);
 }
 
+void NetworkIOManager::requestSlippyTiles(CompressedDEMFetcher *f,
+                                          quint64 requestId,
+                                          const QList<QGeoCoordinate> &crds,
+                                          const quint8 zoom,
+                                          quint8 destinationZoom,
+                                          bool compound)
+{
+    if (crds.isEmpty()) {
+        qWarning() << "requestSlippyTiles: Invalid bounds";
+        return;
+    }
+    CompressedDEMFetcherWorker *w = getCompressedDEMFetcherWorker(f);
+    w->setURLTemplate(f->urlTemplate()); // it might change in between requests
+    w->requestSlippyTiles(requestId, crds, zoom, destinationZoom, compound);
+}
+
 quint64 NetworkIOManager::cacheSize() {
     return NAM::instance().cacheSize();
 }
@@ -617,6 +633,29 @@ ASTCFetcherWorker *NetworkIOManager::getASTCFetcherWorker(ASTCFetcher *f) {
                 &ASTCFetcherWorker::coverageASTCReady,
                 f,
                 &ASTCFetcher::onInsertASTCCoverage, Qt::QueuedConnection);
+        connect(w,
+                SIGNAL(requestHandlingFinished(quint64)),
+                f,
+                SIGNAL(requestHandlingFinished(quint64)), Qt::QueuedConnection);
+    } else {
+        w = it->second;
+    }
+    return w;
+}
+
+CompressedDEMFetcherWorker *NetworkIOManager::getCompressedDEMFetcherWorker(CompressedDEMFetcher *f) {
+    CompressedDEMFetcherWorker *w;
+    auto it = m_astcdemFetcher2Worker.find(f);
+    if (it == m_astcdemFetcher2Worker.end()) {
+        init();
+        if (!m_workerASTC)
+            m_workerASTC = QSharedPointer<ThreadedJobQueue>(new ThreadedJobQueue(8));
+        w = new CompressedDEMFetcherWorker(this, f, m_worker, m_workerASTC);
+        m_astcdemFetcher2Worker.insert({f, w});
+        connect(w,
+                &CompressedDEMFetcherWorker::compressedHeightmapReady,
+                f,
+                &CompressedDEMFetcher::onInsertCompressedHeightmap, Qt::QueuedConnection);
         connect(w,
                 SIGNAL(requestHandlingFinished(quint64)),
                 f,
@@ -735,13 +774,14 @@ void DEMFetcherWorker::onInsertHeightmapCoverage(quint64 id,
     emit requestHandlingFinished(id);
 }
 
+MapFetcherWorkerPrivate::MapFetcherWorkerPrivate(MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker)
+    : m_worker(worker), m_fetcher(f) {}
+
+
 MapFetcherWorker::MapFetcherWorker(QObject *parent,
                                    MapFetcher *f,
                                    QSharedPointer<ThreadedJobQueue> worker)
-    : QObject(*new MapFetcherWorkerPrivate, parent) {
-    Q_D(MapFetcherWorker);
-    d->m_fetcher = f;
-    d->m_worker = worker;
+    : QObject(*new MapFetcherWorkerPrivate(f, worker), parent) {
 }
 
 void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
@@ -772,8 +812,12 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
     d->m_request2sourceZoom[requestId] = zoom;
     auto *df = qobject_cast<DEMFetcherWorker *>(this);
     auto *af = qobject_cast<ASTCFetcherWorker *>(this);
+    auto *adf = qobject_cast<CompressedDEMFetcherWorker *>(this);
     if (af)  // ASTCFetcher is a multistage fetcher that may request compound tiles
         af->d_func()->m_request2remainingASTCHandlers[requestId] = 0;
+    if (adf) {
+        adf->d_func()->m_request2remainingASTCHandlers[requestId] = 0;
+    }
     quint64 srcTilesSize = tiles.size();
     std::vector<CachedCompoundTileData *> cachedCompoundTileHandlers;
     if (destinationZoom < zoom) {
@@ -835,6 +879,11 @@ void MapFetcherWorker::requestSlippyTiles(quint64 requestId,
 
     if (af) {
         af->d_func()->m_request2remainingASTCHandlers[requestId] =
+                srcTilesSize * subtilesPerTile(zoom, destinationZoom); // TODO: deduplicate? m_request2remainingHandlers might be enough
+    }
+
+    if (adf) {
+        adf->d_func()->m_request2remainingASTCHandlers[requestId] =
                 srcTilesSize * subtilesPerTile(zoom, destinationZoom); // TODO: deduplicate? m_request2remainingHandlers might be enough
     }
 
@@ -906,10 +955,16 @@ void MapFetcherWorker::onTileReplyFinished() {
 
     auto *df = qobject_cast<DEMFetcherWorker *>(this);
     auto *af = qobject_cast<ASTCFetcherWorker *>(this);
+    auto *adf = qobject_cast<CompressedDEMFetcherWorker *>(this);
     if (reply->error() != QNetworkReply::NoError) {
         reply->deleteLater();
         d->m_request2remainingHandlers[id] -= subtilesPerTile(z, dz); // subtilesPerTile > 1 only during fragmentation
-        if (df) {
+         if (adf) {
+            adf->d_func()->m_request2remainingASTCHandlers[id] -= subtilesPerTile(z, dz);
+            if (adf->d_func()->m_request2remainingASTCHandlers[id] <= 0) {// TODO: deduplicate? m_request2remainingHandlers might be enough
+                emit requestHandlingFinished(id);
+            }
+        } else if (df) {
             df->d_func()->m_request2remainingDEMHandlers[id] -= subtilesPerTile(z, dz);
             if (df->d_func()->m_request2remainingDEMHandlers[id] <= 0) {// TODO: deduplicate? m_request2remainingHandlers might be enough
                 emit requestHandlingFinished(id);
@@ -995,15 +1050,11 @@ void MapFetcherWorker::networkReplyError(QNetworkReply::NetworkError) {
     qWarning() << reply->error() << reply->errorString();
 }
 
-MapFetcherWorker::MapFetcherWorker(MapFetcherWorkerPrivate &dd, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker, QObject *parent)
-:   QObject(dd, parent)
-{
-    Q_D(MapFetcherWorker);
-    d->m_fetcher = f;
-    d->m_worker = worker;
-}
+MapFetcherWorker::MapFetcherWorker(MapFetcherWorkerPrivate &dd, QObject *parent)
+:   QObject(dd, parent) {}
 
-DEMFetcherWorkerPrivate::DEMFetcherWorkerPrivate() : MapFetcherWorkerPrivate() {}
+DEMFetcherWorkerPrivate::DEMFetcherWorkerPrivate(DEMFetcher *f, QSharedPointer<ThreadedJobQueue> worker)
+    : MapFetcherWorkerPrivate(f, worker) {}
 
 void DEMFetcherWorkerPrivate::trackNeighbors(quint64 id,
                                              const TileKey &k,
@@ -1062,12 +1113,19 @@ void DEMFetcherWorkerPrivate::trackNeighbors(quint64 id,
 }
 
 DEMFetcherWorker::DEMFetcherWorker(QObject *parent, DEMFetcher *f, QSharedPointer<ThreadedJobQueue> worker, bool borders)
-    :   MapFetcherWorker(*new DEMFetcherWorkerPrivate, f, worker, parent)
+    :   MapFetcherWorker(*new DEMFetcherWorkerPrivate(f, worker), parent)
 {
     Q_D(DEMFetcherWorker);
     d->m_borders = borders;
     init();
 }
+
+DEMFetcherWorker::DEMFetcherWorker(DEMFetcherWorkerPrivate &dd, QObject *parent)
+    : MapFetcherWorker(dd, parent)
+{
+    init();
+}
+
 
 void DEMFetcherWorker::init() {
     connect(this, &MapFetcherWorker::tileReady, this, &DEMFetcherWorker::onTileReady);
@@ -1102,12 +1160,11 @@ ASTCFetcherWorker::ASTCFetcherWorker(QObject *parent,
                                      ASTCFetcher *f,
                                      QSharedPointer<ThreadedJobQueue> worker,
                                      QSharedPointer<ThreadedJobQueue> workerASTC)
-:   MapFetcherWorker(*new ASTCFetcherWorkerPrivate, f, worker, parent)
+:   MapFetcherWorker(*new ASTCFetcherWorkerPrivate(f, worker, workerASTC), parent)
 {
     Q_D(ASTCFetcherWorker);
     init();
-    d->m_forwardUncompressed = f->forwardUncompressedTiles();
-    d->m_workerASTC = std::move(workerASTC);
+    //d->m_forwardUncompressed = f->forwardUncompressedTiles(); // leave it off
 }
 
 void ASTCFetcherWorker::setForwardUncompressed(bool enabled)
@@ -1193,10 +1250,74 @@ void ASTCFetcherWorker::onInsertCoverageASTC(quint64 id,
     emit coverageASTCReady(id, std::move(h));
 }
 
+ASTCFetcherWorkerPrivate::ASTCFetcherWorkerPrivate(MapFetcher *f,
+                                                   QSharedPointer<ThreadedJobQueue> worker,
+                                                   QSharedPointer<ThreadedJobQueue> workerASTC)
+    : MapFetcherWorkerPrivate(f, worker), m_workerASTC(workerASTC)
+{
+    qDebug() << "ASTCFetcherWorkerPrivate::m_request2remainingASTCHandlers "<< &m_request2remainingASTCHandlers;
+}
+
 void ASTCFetcherWorkerPrivate::setNetworkProgressDriver()
 {
     Q_Q(ASTCFetcherWorker);
     m_nm.setProgressDriver(q, SIGNAL(tileASTCReady(quint64,
                                                    const TileKey,
                                                    std::shared_ptr<OpenGLTextureData>)));
+}
+
+CompressedDEMFetcherWorkerPrivate::CompressedDEMFetcherWorkerPrivate(CompressedDEMFetcher *f,
+                                                         QSharedPointer<ThreadedJobQueue> worker,
+                                                         QSharedPointer<ThreadedJobQueue> workerASTC)
+    : DEMFetcherWorkerPrivate(f, worker),
+      m_workerASTC(workerASTC) {
+    m_borders = true;
+}
+
+CompressedDEMFetcherWorker::CompressedDEMFetcherWorker(QObject *parent,
+                                           CompressedDEMFetcher *f,
+                                           QSharedPointer<ThreadedJobQueue> worker,
+                                           QSharedPointer<ThreadedJobQueue> workerASTC)
+: DEMFetcherWorker(*new CompressedDEMFetcherWorkerPrivate(f,worker, workerASTC),
+                   parent)
+{
+    init();
+}
+
+void CompressedDEMFetcherWorker::onInsertCompressedHeightmap(quint64 id,
+                                            const TileKey k,
+                                            std::shared_ptr<HeightmapBase> h)
+{
+    Q_D(CompressedDEMFetcherWorker);
+    emit compressedHeightmapReady(id, k,
+                            std::move(h)
+//                            std::static_pointer_cast<HeightmapBase>(std::move(h)));
+//                            std::static_pointer_cast<OpenGLTextureData>(std::move(h))
+                            );
+
+    if (!--d->m_request2remainingASTCHandlers[id]) {
+        emit requestHandlingFinished(id); // it's somewhat involved to avoid emitting this signal
+                                          // in mapfetcherworker. So emit it only there, as this
+                                          // astc tile will eventually be produced
+    }
+}
+
+void CompressedDEMFetcherWorker::onInsertHeightmap(quint64 id,
+                                             const TileKey k,
+                                             std::shared_ptr<HeightmapBase> h)
+{
+    // In the parent class, this used to forward the heightmapReady signal to the ASTCFetcher,
+    // and possibly emit requestHandlingFinished. here one more stage needed
+    Q_D(CompressedDEMFetcherWorker);
+    auto hh = new Heightmap2CompressedTextureData(std::move(h),
+                                     k,
+                                     *this,
+                                     id,
+                                     false);
+    d->m_workerASTC->schedule(hh);
+}
+
+void CompressedDEMFetcherWorker::init() {
+    connect(this, &DEMFetcherWorker::heightmapReady,
+            this, &CompressedDEMFetcherWorker::onInsertHeightmap);
 }

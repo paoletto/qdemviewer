@@ -53,7 +53,8 @@ struct ThreadedJobData {
         DEMTileReply = 3,
         DEMReady = 4,
         Raster2ASTC = 5,
-        ASTCTileReply = 6
+        ASTCTileReply = 6,
+        Heightmap2CompressedTexture = 7
     };
 
     virtual ~ThreadedJobData() {}
@@ -241,6 +242,24 @@ struct ASTCCompressedTextureData : public OpenGLTextureData {
 
     std::shared_ptr<QImage> m_image;
     std::vector<QTextureFileData> m_mips;
+
+protected:
+    virtual void initFromImage(const std::shared_ptr<QImage> &i,
+                       qint64 x,
+                       qint64 y,
+                       qint64 z,
+                       QByteArray md5);
+};
+
+struct ASTCHeightmapData : public ASTCCompressedTextureData {
+    ASTCHeightmapData() = default;
+    ~ASTCHeightmapData() override = default;
+protected:
+    void initFromImage(const std::shared_ptr<QImage> &i,
+                       qint64 x,
+                       qint64 y,
+                       qint64 z,
+                       QByteArray md5) override;
 };
 
 class ASTCFetcherPrivate :  public MapFetcherPrivate
@@ -263,6 +282,28 @@ public:
 
     std::map<quint64, TileCacheASTC> m_tileCacheASTC;
     std::map<quint64, std::shared_ptr<OpenGLTextureData>> m_coveragesASTC;
+    QAtomicInt m_forwardUncompressed{false};
+};
+
+class CompressedDEMFetcherPrivate :  public DEMFetcherPrivate
+{
+    Q_DECLARE_PUBLIC(CompressedDEMFetcher)
+
+public:
+    CompressedDEMFetcherPrivate() = default;
+    ~CompressedDEMFetcherPrivate() override = default;
+
+    std::shared_ptr<HeightmapBase> compressedHeightmap(quint64 id, const TileKey k);
+    quint64 requestSlippyTiles(const QList<QGeoCoordinate> &crds,
+                               const quint8 zoom,
+                               quint8 destinationZoom,
+                               bool compound) override;
+
+    quint64 requestCoverage(const QList<QGeoCoordinate> &crds,
+                            const quint8 zoom,
+                            bool clip) override;
+
+    std::map<quint64, HeightmapCache> m_compressedHeightmapCache;
     QAtomicInt m_forwardUncompressed{false};
 };
 
@@ -309,13 +350,19 @@ signals:
 protected slots:
     void onTileReplyFinished();
     void onTileReplyForCoverageFinished();
-    void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i, QByteArray md5);
-    void onInsertCompressedTileData(const quint64 id, const TileKey k, std::shared_ptr<QByteArray> data);
-    void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
+    void onInsertTile(const quint64 id,
+                      const TileKey k,
+                      std::shared_ptr<QImage> i,
+                      QByteArray md5);
+    void onInsertCompressedTileData(const quint64 id,
+                                    const TileKey k,
+                                    std::shared_ptr<QByteArray> data);
+    void onInsertCoverage(const quint64 id,
+                          std::shared_ptr<QImage> i);
     void networkReplyError(QNetworkReply::NetworkError);
 
 protected:
-    MapFetcherWorker(MapFetcherWorkerPrivate &dd, MapFetcher *f, QSharedPointer<ThreadedJobQueue> worker, QObject *parent = nullptr);
+    MapFetcherWorker(MapFetcherWorkerPrivate &dd, QObject *parent = nullptr);
 
 private:
     Q_DISABLE_COPY(MapFetcherWorker)
@@ -323,12 +370,13 @@ private:
 friend class TileReplyHandler;
 friend class NetworkIOManager;
 };
-class MapFetcherWorkerPrivate :  public QObjectPrivate
+class MapFetcherWorkerPrivate : public QObjectPrivate
 {
     Q_DECLARE_PUBLIC(MapFetcherWorker)
 
 public:
-    MapFetcherWorkerPrivate() = default;
+    MapFetcherWorkerPrivate(MapFetcher *f,
+                            QSharedPointer<ThreadedJobQueue> worker);
     ~MapFetcherWorkerPrivate() override = default;
 
     std::shared_ptr<QImage> tile(quint64 requestId, const TileKey &k);
@@ -384,17 +432,17 @@ signals:
 protected slots:
     void onTileReady(quint64 id,
                      const TileKey k,
-                     std::shared_ptr<QImage> i);
+                     std::shared_ptr<QImage> i); // Intercepts the tileReady signal from MapFetcherWorker
     void onCoverageReady(quint64 id,
                          std::shared_ptr<QImage> i);
-    void onInsertHeightmap(quint64 id,
+    virtual void onInsertHeightmap(quint64 id,
                            const TileKey k,
-                           std::shared_ptr<HeightmapBase> h);
+                           std::shared_ptr<HeightmapBase> h); // Finalizes DEMReadyHandler jobs
     void onInsertHeightmapCoverage(quint64 id,
                                    std::shared_ptr<HeightmapBase> h);
 
 protected:
-//    DEMFetcherWorker(DEMFetcherWorkerPrivate &dd, QObject *parent = nullptr);
+    DEMFetcherWorker(DEMFetcherWorkerPrivate &dd, QObject *parent = nullptr);
     void init();
 private:
     Q_DISABLE_COPY(DEMFetcherWorker)
@@ -402,11 +450,13 @@ friend class DEMReadyHandler;
 friend class NetworkIOManager;
 friend class MapFetcherWorker;
 };
-class DEMFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
+
+class DEMFetcherWorkerPrivate : public MapFetcherWorkerPrivate
 {
     Q_DECLARE_PUBLIC(DEMFetcherWorker)
 public:
-    DEMFetcherWorkerPrivate();
+    DEMFetcherWorkerPrivate(DEMFetcher *f, QSharedPointer<ThreadedJobQueue> worker);
+
     ~DEMFetcherWorkerPrivate() override = default;
 
     void trackNeighbors(quint64 id,
@@ -424,6 +474,42 @@ public:
     std::unordered_map<quint64, std::shared_ptr<Heightmap>> m_heightmapCoverages;
     std::unordered_map<quint64, qint64> m_request2remainingDEMHandlers;
     bool m_borders{false};
+};
+
+class CompressedDEMFetcherWorkerPrivate;
+class CompressedDEMFetcherWorker : public DEMFetcherWorker {
+    Q_DECLARE_PRIVATE(CompressedDEMFetcherWorker)
+    Q_OBJECT
+
+public:
+    CompressedDEMFetcherWorker(QObject *parent,
+                         CompressedDEMFetcher *f,
+                         QSharedPointer<ThreadedJobQueue> worker,
+                         QSharedPointer<ThreadedJobQueue> workerASTC);
+    ~CompressedDEMFetcherWorker() override = default;
+
+signals:
+    void compressedHeightmapReady(quint64 id,
+                        const TileKey k,
+                        std::shared_ptr<HeightmapBase>);
+
+protected slots:
+    void onInsertCompressedHeightmap(quint64 id,
+                              const TileKey k,
+                              std::shared_ptr<HeightmapBase> i);
+
+    void onInsertHeightmap(quint64 id,
+                           const TileKey k,
+                           std::shared_ptr<HeightmapBase> h) override; // Intercepts heightmapReady signal from DEMReadyHandler
+                                                                       // And attaches the last bit of processing
+
+
+protected:
+    void init();
+
+friend class Heightmap2CompressedTextureHandler;
+friend class NetworkIOManager;
+friend class MapFetcherWorker;
 };
 
 class ASTCFetcherWorkerPrivate;
@@ -462,15 +548,30 @@ friend class NetworkIOManager;
 friend class MapFetcherWorker;
 };
 
-class ASTCFetcherWorkerPrivate :  public MapFetcherWorkerPrivate
+class ASTCFetcherWorkerPrivate : public MapFetcherWorkerPrivate
 {
     Q_DECLARE_PUBLIC(ASTCFetcherWorker)
 public:
-    ASTCFetcherWorkerPrivate() = default;
+    ASTCFetcherWorkerPrivate(MapFetcher *f,
+                             QSharedPointer<ThreadedJobQueue> worker,
+                             QSharedPointer<ThreadedJobQueue> workerASTC);
     ~ASTCFetcherWorkerPrivate() override = default;
     void setNetworkProgressDriver();
 
     bool m_forwardUncompressed{false};
+    std::unordered_map<quint64, qint64> m_request2remainingASTCHandlers;
+    QSharedPointer<ThreadedJobQueue> m_workerASTC;
+};
+
+class CompressedDEMFetcherWorkerPrivate : public DEMFetcherWorkerPrivate
+{
+    Q_DECLARE_PUBLIC(CompressedDEMFetcherWorker)
+public:
+    CompressedDEMFetcherWorkerPrivate(CompressedDEMFetcher *f,
+                                QSharedPointer<ThreadedJobQueue> worker,
+                                QSharedPointer<ThreadedJobQueue> workerASTC);
+    ~CompressedDEMFetcherWorkerPrivate() override = default;
+
     std::unordered_map<quint64, qint64> m_request2remainingASTCHandlers;
     QSharedPointer<ThreadedJobQueue> m_workerASTC;
 };
@@ -524,6 +625,13 @@ public slots:
                             const quint8 zoom,
                             const bool clip = false);
 
+    void requestSlippyTiles(CompressedDEMFetcher *fetcher,
+                            quint64 requestId,
+                            const QList<QGeoCoordinate> &crds,
+                            const quint8 zoom,
+                            quint8 destinationZoom,
+                            bool compound);
+
     quint64 cacheSize();
 
     QString cachePath();
@@ -540,6 +648,8 @@ protected:
 
     ASTCFetcherWorker *getASTCFetcherWorker(ASTCFetcher *f);
 
+    CompressedDEMFetcherWorker *getCompressedDEMFetcherWorker(CompressedDEMFetcher *f);
+
 protected:
     QSharedPointer<ThreadedJobQueue> m_worker; // TODO: figure how to use a qthreadpool and move qobjects to it
     QSharedPointer<ThreadedJobQueue> m_workerASTC;
@@ -547,6 +657,7 @@ protected:
     std::unordered_map<MapFetcher *, MapFetcherWorker *> m_mapFetcher2Worker;
     std::unordered_map<DEMFetcher *, DEMFetcherWorker *> m_demFetcher2Worker;
     std::unordered_map<ASTCFetcher *, ASTCFetcherWorker *> m_astcFetcher2Worker;
+    std::unordered_map<CompressedDEMFetcher *, CompressedDEMFetcherWorker *> m_astcdemFetcher2Worker;
 };
 
 class NetworkManager
@@ -651,6 +762,22 @@ public:
                                   , Q_ARG(QList<QGeoCoordinate>, crds)
                                   , Q_ARG(uchar, zoom)
                                   , Q_ARG(bool, clip));
+        return requestId;
+    }
+
+    quint64 requestSlippyTiles(CompressedDEMFetcher &fetcher,
+                               const QList<QGeoCoordinate> &crds,
+                               const quint8 zoom,
+                               const quint8 destinationZoom,
+                               bool compound) {
+        const auto requestId = m_requestID++;
+        QMetaObject::invokeMethod(m_manager.get(), "requestSlippyTiles", Qt::QueuedConnection
+                                  , Q_ARG(CompressedDEMFetcher *, &fetcher)
+                                  , Q_ARG(qulonglong, requestId)
+                                  , Q_ARG(QList<QGeoCoordinate>, crds)
+                                  , Q_ARG(uchar, zoom)
+                                  , Q_ARG(uchar, destinationZoom)
+                                  , Q_ARG(bool, compound));
         return requestId;
     }
 
@@ -936,6 +1063,55 @@ private:
     QScopedPointer<Raster2ASTCData> d;
 };
 
+struct Heightmap2CompressedTextureData : public ThreadedJobData {
+    Heightmap2CompressedTextureData(std::shared_ptr<HeightmapBase> heightmap,
+                    const TileKey k,
+                    CompressedDEMFetcherWorker &fetcher,
+                    quint64 id,
+                    bool coverage = false)
+   : ThreadedJobData()
+   , m_heightmap(std::move(heightmap))
+   , m_k(k)
+   , m_fetcher(fetcher)
+   , m_id(id)
+   , m_coverage(coverage)
+   {}
+
+    ~Heightmap2CompressedTextureData() override {}
+    int priority() const override {
+        return Raster2ASTCHandler::priority();
+    }
+    JobType type() const override { return JobType::Heightmap2CompressedTexture; }
+
+    std::shared_ptr<HeightmapBase> m_heightmap;
+    const TileKey m_k;
+    CompressedDEMFetcherWorker &m_fetcher;
+    quint64 m_id;
+    bool m_coverage;
+    QByteArray m_md5;
+};
+
+class Heightmap2CompressedTextureHandler : public ThreadedJob
+{
+    Q_OBJECT
+public:
+    Heightmap2CompressedTextureHandler(Heightmap2CompressedTextureData *data);
+
+    ~Heightmap2CompressedTextureHandler() override;
+    const TileKey &tileKey() const;
+    static int priority() { return 8; }
+
+signals:
+    void insertCompressedHeightmap(quint64 id,
+                             const TileKey k,
+                             std::shared_ptr<HeightmapBase> i);
+
+public slots:
+    void process() override;
+
+private:
+    QScopedPointer<Heightmap2CompressedTextureData> d;
+};
 
 inline uint qHash (const QPoint & key)
 {

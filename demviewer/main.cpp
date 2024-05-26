@@ -204,6 +204,9 @@ public:
         if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcSupported", true);
         }
+        if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_hdr"))) {
+            qmlContext(w)->engine()->rootContext()->setContextProperty("astcHDRSupported", true);
+        }
         m_window = w;
     }
 
@@ -507,12 +510,14 @@ struct Tile
         m_dem = std::move(dem);
         if (m_dem)
             m_resolution = m_dem->size();
+        else
+            m_graphicsBytes = 0;
     }
 
     void setMap(std::shared_ptr<OpenGLTextureData> map) {
         m_map = map;
         if (!m_map)
-            m_rasterBytes = 0;
+            m_graphicsBytes = 0;
     }
 
     void setRasterSubtile(const TileKey &k,
@@ -553,7 +558,7 @@ struct Tile
     {
         if (m_map) {
 
-            m_rasterBytes = m_map->upload(m_texMap);
+            m_graphicsBytes = m_map->upload(m_texMap);
             m_compressedRaster = m_map->hasCompressedData();
             m_map = nullptr;
         } else if (m_rasterSubtiles.size()) { // assume they are the correct subcontent for this tile.
@@ -563,7 +568,7 @@ struct Tile
             for (auto &st: subtiles) {
                 const int layers = keyToLayers(m_key, st.first);
                 const int layer = keyToLayer(m_key, st.first);
-                m_rasterBytes += st.second->uploadTo2DArray(m_texMap,layer, layers);
+                m_graphicsBytes += st.second->uploadTo2DArray(m_texMap,layer, layers);
             }
         }
         return m_texMap;
@@ -619,13 +624,7 @@ struct Tile
     }
 
     quint64 allocatedGraphicsMemoryBytes() const {
-        quint64 res = 0;
-        if (m_texDem)
-            res += m_texDem->width() * m_texDem->height() * 4; // r32f
-        if (m_texMap)
-            //res += (m_texMap->width() * m_texMap->height() * sizeof(GLfloat)) * 1.3333; //mipmapped
-            res += m_rasterBytes;
-        return res;
+        return m_graphicsBytes;
     }
 
     // reuse the same every time
@@ -633,15 +632,18 @@ struct Tile
     QSize m_resolution; // GLint bcz somehow setUniformValue is picking the wrong overload otherwise
 
     bool m_compressedRaster{false};
-    quint64 m_rasterBytes{0};
+    quint64 m_graphicsBytes{0};
     bool m_hasBorders{false};
     bool m_initialized{false};
     std::shared_ptr<HeightmapBase> m_dem;
+    HeightmapBase::Format m_demFormat{HeightmapBase::Format::Float};
     QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
     std::shared_ptr<OpenGLTextureData> m_map;
     std::map<TileKey, std::shared_ptr<OpenGLTextureData>> m_rasterSubtiles;
     QSharedPointer<QOpenGLTexture> m_texMap;
+
+    QPair<float, float> m_minMaxElevation;
 
     std::shared_ptr<Tile> m_right;
     std::shared_ptr<Tile> m_bottom;
@@ -909,6 +911,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(QVariant interactor READ getArcball WRITE setArcball)
     Q_PROPERTY(QVariant map READ getMap WRITE setMap)
     Q_PROPERTY(QVariant demFetcher READ getDEMFetcher WRITE setDEMFetcher)
+    Q_PROPERTY(QVariant compressedDEMFetcher READ getCompressedDEMFetcher WRITE setCompressedDEMFetcher)
     Q_PROPERTY(QVariant rasterFetcher READ rasterFetcher WRITE setRasterFetcher)
     Q_PROPERTY(qreal elevationScale READ elevationScale WRITE setElevationScale)
     Q_PROPERTY(qreal brightness READ brightness WRITE setBrightness)
@@ -920,6 +923,7 @@ class TerrainViewer : public QQuickFramebufferObject
     Q_PROPERTY(bool offline READ offline WRITE setOffline NOTIFY offlineChanged)
     Q_PROPERTY(bool logRequests READ logRequests WRITE setLogRequests NOTIFY logRequestsChanged)
     Q_PROPERTY(bool astcEnabled READ astc WRITE setAstc NOTIFY astcChanged)
+    Q_PROPERTY(bool astcHDREnabled READ astcHDR WRITE setAstcHDR NOTIFY astcHDRChanged)
     Q_PROPERTY(bool fastInteraction READ fastInteraction WRITE setFastInteraction NOTIFY fastInteractionChanged)
     Q_PROPERTY(bool autoRefinement READ autoRefinement WRITE setAutoRefinement NOTIFY autoRefinementChanged)
     Q_PROPERTY(int downsamplingRate READ downsamplingRate WRITE setDownsamplingRate)
@@ -998,6 +1002,23 @@ public:
 
     QVariant getDEMFetcher() const {
         return QVariant::fromValue(m_demFetcher);
+    }
+
+    void setCompressedDEMFetcher(QVariant value) {
+        if (m_compressedDEMFetcher)
+            return;
+        m_compressedDEMFetcher = qobject_cast<CompressedDEMFetcher *>(qvariant_cast<QObject *>(value));
+        if (m_compressedDEMFetcher) {
+            QObject::connect(m_compressedDEMFetcher, &DEMFetcher::heightmapReady,
+                             this, &TerrainViewer::onCompressedDEMReady);
+            QObject::connect(m_compressedDEMFetcher, &MapFetcher::requestHandlingFinished,
+                             this, &TerrainViewer::onRequestHandlingFinished);
+            m_compressedDEMFetcher->setBorders(true);
+        }
+    }
+
+    QVariant getCompressedDEMFetcher() const {
+        return QVariant::fromValue(m_compressedDEMFetcher);
     }
 
     void setRasterFetcher(QVariant value) {
@@ -1121,6 +1142,17 @@ public:
         emit astcChanged();
     }
 
+    bool astcHDR() const {
+        return NetworkConfiguration::astcHDREnabled;
+    }
+
+    void setAstcHDR(bool enabled) {
+        if (NetworkConfiguration::astcHDREnabled == enabled)
+            return;
+        NetworkConfiguration::astcHDREnabled = enabled;
+        emit astcHDRChanged();
+    }
+
     bool fastInteraction() const {
         return m_fastInteraction;
     }
@@ -1173,6 +1205,7 @@ signals:
     void allocatedGraphicsBytesChanged();
     void offlineChanged();
     void astcChanged();
+    void astcHDRChanged();
     void fastInteractionChanged();
     void autoRefinementChanged();
     void logRequestsChanged();
@@ -1224,6 +1257,11 @@ protected slots:
         delayedUpdate();
     }
 
+    void onCompressedDEMReady(quint64 id, const TileKey k) {
+        m_newTiles[k] =  m_compressedDEMFetcher->compressedHeightmap(id, k);
+        delayedUpdate();
+    }
+
     void onCoverageReady(const quint64 id) {
         if (!m_demFetcher)
             return;
@@ -1260,6 +1298,7 @@ private:
     ArcBall *m_arcball{nullptr};
     QDeclarativeGeoMap *m_map{nullptr};
     DEMFetcher *m_demFetcher{nullptr};
+    CompressedDEMFetcher *m_compressedDEMFetcher{nullptr};
     ASTCFetcher *m_rasterFetcher{nullptr};
     bool m_recreateRenderer = false;
     bool m_reset = false;
@@ -1367,7 +1406,9 @@ public:
 QSharedPointer<QOpenGLTexture> Tile::demTexture() {
     if (m_dem && !m_dem->size().isEmpty() /*&& !m_texDem*/) {
         HeightmapBase &h = *m_dem.get();
+        m_demFormat = h.format();
         m_hasBorders = h.bordersComputed();
+        m_minMaxElevation = h.minMax();
 
         int maxHSize = std::max(h.size().width(), h.size().height());
         if (m_renderer.m_maxTexSize && maxHSize > m_renderer.m_maxTexSize) {
@@ -1376,7 +1417,7 @@ QSharedPointer<QOpenGLTexture> Tile::demTexture() {
             m_resolution = h.size();
         }
 
-        h.asOpenGLTextureData()->upload(m_texDem); // FIXME!!!
+        m_graphicsBytes += h.asOpenGLTextureData()->upload(m_texDem); // FIXME!!!
         m_dem.reset();
     }
     return m_texDem;
@@ -1402,25 +1443,8 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
         f->glGetIntegerv(GL_MAX_TEXTURE_SIZE, &m_renderer.m_maxTexSize);
         f->glGetIntegerv(GL_MAX_ARRAY_TEXTURE_LAYERS, &m_renderer.m_maxTexLayers);
 
-//        m_renderer.m_shader.reset(new QOpenGLShaderProgram);
-//        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Vertex,
-//                                          QByteArray(vertexShaderTile));
-//        m_renderer.m_shader->addShaderFromSourceCode(QOpenGLShader::Fragment,
-//                                          QByteArray(fragmentShaderTile));
-//        m_renderer.m_shader->link();
-//        m_renderer.m_shader->setObjectName("shader");
-
-//        m_renderer.m_shaderTextured.reset(new QOpenGLShaderProgram);
-//        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
-//                                          QByteArray(vertexShaderTile));
-//        m_renderer.m_shaderTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
-//                                          QByteArray(fragmentShaderTileTextured));
-//        m_renderer.m_shaderTextured->link();
-//        m_renderer.m_shaderTextured->setObjectName("shaderTextured");
-
         QByteArray baVertex = QByteArray(headerDEMFloat) + QByteArray(vertexShaderTileJoinedDownsampled);
         QByteArray baVertexTerrarium = QByteArray(headerDEMTerrarium) + QByteArray(vertexShaderTileJoinedDownsampled);
-
 
         m_renderer.m_shaderJoinedDownsampledTextured.reset(new QOpenGLShaderProgram);
         // Create shaders
@@ -1434,7 +1458,7 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
 
         m_renderer.m_shaderJoinedDownsampledTexturedTerrarium.reset(new QOpenGLShaderProgram);
         m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                          baVertex);
+                                          baVertexTerrarium);
         m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                           QByteArray(fragmentShaderTileTextured));
         m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->link();
@@ -1502,18 +1526,29 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
     int idealRate = qMax<int>(1, tileInnerSamples / tileSizeOnScreen);
 
     QOpenGLShaderProgram *shader;
-    if (rasterTxt && rasterTxt->layers() > 1) {
-        shader = m_renderer.m_shaderJoinedDownsampledTextureArrayd.get();
-    } else {
-        shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
-    }
-
-
     QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
-    ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
+    f->glEnable(GL_TEXTURE_2D);
+    if (m_demFormat == HeightmapBase::Format::Float
+            || m_demFormat == HeightmapBase::Format::CompressedFloat) {
+        if (rasterTxt && rasterTxt->layers() > 1) {
+            shader = m_renderer.m_shaderJoinedDownsampledTextureArrayd.get();
+        } else {
+            shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
+        }
+    } else {
+        if (rasterTxt && rasterTxt->layers() > 1) {
+            shader = m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium.get();
+        } else {
+            shader = m_renderer.m_shaderJoinedDownsampledTexturedTerrarium.get();
+        }
+    }
+    f->glActiveTexture(GL_TEXTURE0 + 1);
+    demTxt->bind();
 
     shader->bind();
-    f->glEnable(GL_TEXTURE_2D);
+
+    f->glActiveTexture(GL_TEXTURE0 + 0);
+
     if (rasterTxt)  {
         rasterTxt->bind();
     } else {
@@ -1538,6 +1573,9 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
     elevationScale *= reciprocalCircumference;
     elevationScale *= totalTiles;
 
+    shader->setUniformValue("raster", 0);
+    shader->setUniformValue("dem", 1);
+    shader->setUniformValue("minElevation", m_minMaxElevation.first);
     shader->setUniformValue("elevationScale", elevationScale);
     shader->setUniformValue("matrix", m);
     shader->setUniformValue("color", QColor(255,255,255,255));
@@ -1558,6 +1596,8 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
         rasterTxt->release();
     else
         m_renderer.m_texWhite->release();
+    if (demTxt)
+        demTxt->release();
 }
 
 void TileRenderer::synchronize(QQuickFramebufferObject *item)
@@ -1683,6 +1723,13 @@ int main(int argc, char *argv[])
     demFetcher->setURLTemplate(QLatin1String("https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"));
     demFetcher->setMaximumZoomLevel(15);
     demFetcher->setOverzoom(true);
+
+    CompressedDEMFetcher *compressedDEMFetcher = new CompressedDEMFetcher(&engine, true);
+    compressedDEMFetcher->setObjectName("Compressed DEM Fetcher");
+    compressedDEMFetcher->setURLTemplate(QLatin1String("https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"));
+    compressedDEMFetcher->setMaximumZoomLevel(15);
+    compressedDEMFetcher->setOverzoom(true);
+
     ArcBall *arcball = new ArcBall(&engine);
     ASTCFetcher *rasterFetcher = new ASTCFetcher(&engine);
     rasterFetcher->setObjectName("Raster Fetcher");
@@ -1696,6 +1743,7 @@ int main(int argc, char *argv[])
 
     engine.rootContext()->setContextProperty("utilities", utilities);
     engine.rootContext()->setContextProperty("demfetcher", demFetcher);
+    engine.rootContext()->setContextProperty("compresseddemfetcher", compressedDEMFetcher);
     engine.rootContext()->setContextProperty("arcball", arcball);
     engine.rootContext()->setContextProperty("mapFetcher", rasterFetcher);
     engine.rootContext()->setContextProperty("astcSupported", false);

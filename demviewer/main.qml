@@ -98,6 +98,8 @@ QC2.ApplicationWindow {
         property alias lightPos: shadingSphere.pos
         property alias joinTiles: joinTilesMenuItem.checked
         property alias astc: astc.checked
+        property alias compressedDEM: compressedDEM.checked
+
         property alias logging: logRequests.checked
         property alias autoStride: autoStrideMenuItem.checked
         property alias modelCenter: baseMap2.center
@@ -292,14 +294,25 @@ QC2.ApplicationWindow {
             }
             QC2.MenuItem {
                 id: astc
-                text: qsTr("ASTC compression")
+                text: qsTr("Raster compression")
                 checkable: true
                 checked: false
                 enabled: astcSupported
 
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
-                QC2.ToolTip.text: "Texture compression reduces memory usage"
+                QC2.ToolTip.text: "Use ASTC LDR Texture compression for map imagery"
+                QC2.ToolTip.delay: 300
+            }
+            QC2.MenuItem {
+                id: compressedDEM
+                text: qsTr("DEM compression")
+                checkable: true
+                checked: false
+
+                hoverEnabled: true
+                QC2.ToolTip.visible: hovered
+                QC2.ToolTip.text: "Use ASTC HDR Texture compression for DEM if available, BPTC otherwise"
                 QC2.ToolTip.delay: 300
             }
 //            QC2.MenuItem {
@@ -640,12 +653,12 @@ QC2.ApplicationWindow {
                             var res;
                             if (tileMode.checked) {
                                 let destZoom = Math.max(zlslider.value - settings.demCoalescing, 0)
-                                res = demfetcher.requestSlippyTiles(parent.selectionPolygon,
+                                res = viewer.terrainFetcher.requestSlippyTiles(parent.selectionPolygon,
                                                              zlslider.value,
                                                              destZoom)
                                 console.log("Request ",res,"issued")
                                 if (logRequests.checked)
-                                    utilities.logRequest(demfetcher,
+                                    utilities.logRequest(viewer.terrainFetcher,
                                                          parent.selectionPolygon,
                                                          zlslider.value,
                                                          destZoom)
@@ -663,7 +676,7 @@ QC2.ApplicationWindow {
                                                              destZoom)
                                 }
                             } else {
-                                res = demfetcher.requestCoverage(parent.selectionPolygon,
+                                res = viewer.terrainFetcher.requestCoverage(parent.selectionPolygon,
                                                                  zlslider.value,
                                                                  /*clip*/ clipInCoverage.checked)
                                 console.log("Request ",res,"issued")
@@ -838,6 +851,7 @@ QC2.ApplicationWindow {
                     anchors.fill: parent
                     interactor: arcball
                     demFetcher: demfetcher
+                    compressedDEMFetcher: compresseddemfetcher
                     rasterFetcher: mapFetcher
                     joinTiles: true //joinTilesMenuItem.checked
                     elevationScale: elevationSlider.value
@@ -847,11 +861,16 @@ QC2.ApplicationWindow {
                     offline: offline.checked
                     logRequests: logNetworkRequests.checked
                     astcEnabled: settings.astc && astcSupported
+//                    astcHDREnabled: settings.astc && astcHDRSupported
+                    astcHDREnabled: astcHDRSupported
                     fastInteraction: fastInteractionMenuItem.checked
-                    autoRefinement: autoStrideMenuItem.checked //autoRefinementMenuItem.checked
+                    autoRefinement: autoStrideMenuItem.checked
                     downsamplingRate: decimationSlider.rate
                     map: baseMap2
                     geoReferenced: settings.geoReferencing
+                    property var terrainFetcher: (settings.compressedDEM)
+                                                   ? viewer.compressedDEMFetcher
+                                                   : viewer.demFetcher
 
                     Component.onCompleted: {
                         arcball.modelTransformation = settings.modelTransformation

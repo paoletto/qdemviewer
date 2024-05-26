@@ -22,7 +22,7 @@
 #include "astcencoder.h"
 #include <QOpenGLTexture>
 #include <QOpenGLPixelTransferOptions>
-//#include <QOpenGLContext>
+#include <QOpenGLContext>
 //#include <QOpenGLFunctions>
 //#include <QOpenGLExtraFunctions>
 //#include <QOpenGLFunctions_4_5_Core>
@@ -78,6 +78,59 @@ quint64 OpenGLTextureUtils::fillSingleTextureUncompressed(QSharedPointer<QOpenGL
     t->setWrapMode(QOpenGLTexture::ClampToEdge);
     t->setData(*ima);
     return ima->sizeInBytes() * 1.333;
+}
+
+// TODO: Rename/remove. terrarium conversion must not happen here.
+quint64 OpenGLTextureUtils::fillSingleTextureBPTC(QSharedPointer<QOpenGLTexture> &t,
+                                                  std::shared_ptr<QImage> &ima)
+{
+    if (!ima)
+        return 0;
+
+    // Upload pixel data and dont generate mipmaps
+    QImage glImage = ima->convertToFormat(QImage::Format_RGBA8888);
+    std::vector<float> data;
+    data.reserve(ima->width() * ima->height());
+    for (int y = 0; y < ima->height(); ++y) {
+        for (int x = 0; x < ima->width(); ++x) {
+            auto rgb = ima->pixel(x,y);
+            float decodedMeters = (qRed(rgb) * 256.
+                                   + qGreen(rgb)
+                                   + qBlue(rgb) * 0.00390625) - 32768.;
+            data.push_back(decodedMeters);
+        }
+    }
+    return fillSingleTextureBPTC(t, {ima->width(), ima->height()}, data);
+}
+
+quint64 OpenGLTextureUtils::fillSingleTextureBPTC(QSharedPointer<QOpenGLTexture> &t,
+                                                  QSize texSize,
+                                                  std::vector<float> &data,
+                                                  float min)
+{
+    std::vector<float> data2 = data;
+    for (auto &f: data2)
+        f = float(int(f-min)); // even doing this doesn't help much..
+    QOpenGLContext *context = QOpenGLContext::currentContext();
+    if (!context) {
+        qWarning("fillSingleTextureBPTC requires a valid current context");
+        return 0;
+    }
+    t.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
+    t->setMaximumAnisotropy(16);
+    t->setAutoMipMapGenerationEnabled(false);
+    t->setMinMagFilters(QOpenGLTexture::Nearest,
+                        QOpenGLTexture::Nearest);
+    t->setFormat(QOpenGLTexture::RGB_BP_SIGNED_FLOAT);
+
+    t->setSize(texSize.width(), texSize.height());
+    t->setMipLevels(1);
+    t->allocateStorage(QOpenGLTexture::RGB, QOpenGLTexture::UInt8);
+    t->setData(QOpenGLTexture::Red,
+               QOpenGLTexture::Float32,
+               (const void *) &data2.front());
+
+    return data.size(); // BPTC uses 128bit per 4x4 block.
 }
 
 quint64 OpenGLTextureUtils::fillSingleTextureUncompressed(QSharedPointer<QOpenGLTexture> &t,

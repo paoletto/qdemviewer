@@ -41,6 +41,24 @@ struct ASTCEncoderConfig {
         BlockSize12x12 = 12,
     };
 
+    enum SwizzleComponent
+    {
+        /** @brief Select the red component. */
+        ASTCENC_SWZ_R = 0,
+        /** @brief Select the green component. */
+        ASTCENC_SWZ_G = 1,
+        /** @brief Select the blue component. */
+        ASTCENC_SWZ_B = 2,
+        /** @brief Select the alpha component. */
+        ASTCENC_SWZ_A = 3,
+        /** @brief Use a constant zero component. */
+        ASTCENC_SWZ_0 = 4,
+        /** @brief Use a constant one component. */
+        ASTCENC_SWZ_1 = 5
+    };
+
+
+
     static constexpr const float ASTCENC_PRE_FASTEST = 0.0f;
     static constexpr const float ASTCENC_PRE_FAST = 10.0f;
     static constexpr const float ASTCENC_PRE_MEDIUM = 60.0f;
@@ -52,11 +70,25 @@ struct ASTCEncoderConfig {
         return block_x < o.block_x
                 || (block_x == o.block_x && quality < o.quality);
     }
+    using SwizzleConfig = std::array<int, 4>;
+    using ChannelWeights = std::array<float, 4>;
 
 
     unsigned int block_x = 8;
     unsigned int block_y = 8;
     float quality = 85.0f;
+    SwizzleConfig swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
+                              ASTCENC_SWZ_B,
+                              ASTCENC_SWZ_G,
+                              ASTCENC_SWZ_R,
+                              ASTCENC_SWZ_A
+                            };
+
+    ChannelWeights weights = {0.30f * 2.25f, // r,g,b,a
+                              0.59f * 2.25f,
+                              0.11f * 2.25f,
+                              0.}; // Default to what ASTCENC_FLG_USE_PERCEPTUAL does
+
 };
 
 // to use a single astc context
@@ -64,9 +96,20 @@ struct ASTCEncoderPrivate;
 class ASTCEncoder
 {
 public:
-
-
-    static ASTCEncoder& instance(ASTCEncoderConfig::BlockSize bs = ASTCEncoderConfig::BlockSize8x8, float quality = 85.f);
+    static ASTCEncoder& instance(ASTCEncoderConfig::BlockSize bs = ASTCEncoderConfig::BlockSize8x8,
+                                 float quality = 85.f,
+                                 ASTCEncoderConfig::SwizzleConfig swizzleConfig = { // QImage::Format_RGB32 == 0xffRRGGBB
+                                    ASTCEncoderConfig::ASTCENC_SWZ_B,
+                                    ASTCEncoderConfig::ASTCENC_SWZ_G,
+                                    ASTCEncoderConfig::ASTCENC_SWZ_R,
+                                    ASTCEncoderConfig::ASTCENC_SWZ_A
+                                 },
+                                 ASTCEncoderConfig::ChannelWeights channelWeights = {
+                                    0.30f * 2.25f, // r,g,b,a
+                                    0.59f * 2.25f,
+                                    0.11f * 2.25f,
+                                    0.}
+                                 );
 
     static QImage halve(const QImage &src);
 
@@ -76,7 +119,8 @@ public:
                       quint64 x,
                       quint64 y,
                       quint64 z,
-                      std::vector<QTextureFileData> &out, QByteArray md5);
+                      std::vector<QTextureFileData> &out,
+                      QByteArray md5);
     static void generateMips(QImage ima, std::vector<QImage> &out);
 
     bool isCached(const QByteArray &md5);

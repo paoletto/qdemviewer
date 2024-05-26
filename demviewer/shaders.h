@@ -68,7 +68,7 @@ void main()
     fragColor = colors[lineID];
 }
 )";
-static constexpr char headerDEMFloat[] = R"(
+static constexpr char headerDEMFloat_OLD[] = R"(
 #version 450 core
 #define IMGFMT r32f
 layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
@@ -76,14 +76,38 @@ float fetchDEM(ivec2 texelCoord) {
     return imageLoad(dem, texelCoord).r;
 }
 )";
+static constexpr char headerDEMFloat[] = R"(
+#version 450 core
+uniform sampler2D dem;
+uniform float minElevation;
+float fetchDEM(ivec2 texelCoord) {
+    return texelFetch(dem, texelCoord, 0).r;
+}
+)";
+
+//static constexpr char headerDEMTerrarium[] = R"( // broken with compressed txt
+//#version 450 core
+//#define IMGFMT rgba8
+//layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
+
+//float fetchDEM(ivec2 texelCoord) {
+//    vec4 t = imageLoad(dem, texelCoord) * 256.;
+//    return (t.r * 256. + t.g + t.b * 0.00390625) - 32768.; // 1 / 256 = 0.00390625
+//}
+//)";
 static constexpr char headerDEMTerrarium[] = R"(
 #version 450 core
-#define IMGFMT rgba8
-layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
+uniform sampler2D dem;
+uniform float minElevation;
 
 float fetchDEM(ivec2 texelCoord) {
-    vec4 t = imageLoad(dem, texelCoord).r);
+    vec4 t = texelFetch(dem, texelCoord, 0).rgba * vec4(256.,256.,256., 256.);
+//    return (t.a * 256. + t.r + t.b * 0.00390625) - 32768.; // 1 / 256 = 0.00390625
     return (t.r * 256. + t.g + t.b * 0.00390625) - 32768.; // 1 / 256 = 0.00390625
+//    return (t.r * 256. + t.g + t.b / 256.)  // 1 / 256 = 0.00390625
+//    return (t.r * 256. + t.g) + minElevation; // 1 / 256 = 0.00390625
+//    return (0 * 256. + t.g) + minElevation; // 1 / 256 = 0.00390625
+//    return (t.r * 256. + t.g) - 32768.; // 1 / 256 = 0.00390625
 }
 )";
 static constexpr char vertexShaderTileJoinedDownsampled[] = R"(
@@ -226,7 +250,7 @@ void main()
 static constexpr char fragmentShaderTileTextureArrayd[] = R"(
 #version 450 core
 uniform highp vec4 color;
-uniform sampler2DArray rasterArray;
+uniform sampler2DArray raster;
 uniform int numSubtiles;
 uniform float brightness;
 uniform vec3 lightDirection;
@@ -250,7 +274,7 @@ void main()
         vec2 integral;
         subTexCoord  = modf(scaled, integral);
         float layer = (sideLength - integral.y - 1) * sideLength + integral.x;
-        fragColor = textureGrad(rasterArray, vec3(subTexCoord, layer), dFdx(scaled), dFdy(scaled));
+        fragColor = textureGrad(raster, vec3(subTexCoord, layer), dFdx(scaled), dFdy(scaled));
 
         fragColor *= vec4(vec3(lightColor.rgb) * vec3(diff * brightness), 1); // ToDo: move lighting controls to GUI
     } else {   // Fragment is back facing fragment

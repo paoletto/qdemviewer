@@ -42,6 +42,11 @@ struct OpenGLTextureUtils {
     static bool isFormatCompressed(GLint format);
     static quint64 fillSingleTextureUncompressed(QSharedPointer<QOpenGLTexture> &t,
                                                  std::shared_ptr<QImage> &ima);
+    static quint64 fillSingleTextureBPTC(QSharedPointer<QOpenGLTexture> &t,
+                                         std::shared_ptr<QImage> &ima);
+    static quint64 fillSingleTextureBPTC(QSharedPointer<QOpenGLTexture> &t,
+                                         QSize texSize,
+                                         std::vector<float> &data, float min = 0);
     static quint64 fillSingleTextureUncompressed(QSharedPointer<QOpenGLTexture> &t,
                                                  const QSize &size,
                                                  std::vector<float> &data);

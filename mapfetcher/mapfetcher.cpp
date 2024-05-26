@@ -30,6 +30,7 @@
 
 QAtomicInt NetworkConfiguration::offline{false};
 QAtomicInt NetworkConfiguration::astcEnabled{false};
+QAtomicInt NetworkConfiguration::astcHDREnabled{false};
 QAtomicInt NetworkConfiguration::logNetworkRequests{false};
 
 namespace  {
@@ -212,14 +213,20 @@ Heightmap Heightmap::fromImage(const QImage &dem,
 
     const bool hasBorders = borders.size();
     h.setSize((!hasBorders) ? dem.size() : dem.size() + QSize(2,2));
+    float min_ = std::numeric_limits<float>::max();
+    float max_ = std::numeric_limits<float>::min();
     for (int y = 0; y < dem.height(); ++y) {
         for (int x = 0; x < dem.width(); ++x) {
             const float elevationMeters = elevationFromPixel(dem, x, y);
             h.setElevation( x + ((hasBorders) ? 1 : 0)
                            ,y + ((hasBorders) ? 1 : 0)
                            ,elevationMeters);
+            max_ = std::max(elevationMeters,max_);
+            min_ = std::min(elevationMeters,min_);
         }
     }
+
+    h.m_minMax = QPair<float, float>(min_, max_);
 
 #if 0
      // cloning neighbor value
@@ -765,3 +772,58 @@ void DEMFetcherWorkerPrivate::insertNeighbors(quint64 id,
     m_request2Neighbors[id][k] = std::move(nm);
 }
 
+
+CompressedDEMFetcher::CompressedDEMFetcher(QObject *parent, bool borders) : DEMFetcher(*new CompressedDEMFetcherPrivate, parent) {}
+
+std::shared_ptr<HeightmapBase> CompressedDEMFetcher::compressedHeightmap(quint64 id, const TileKey k)
+{
+    Q_D(CompressedDEMFetcher);
+    return d->compressedHeightmap(id, k);
+}
+
+//std::shared_ptr<HeightmapBase> CompressedDEMFetcher::heightmapCoverageASTC(quint64 id)
+//{
+//    qFatal("Not implemented");
+//    return nullptr;
+//}
+
+void CompressedDEMFetcher::onInsertCompressedHeightmap(quint64 id,
+                                           const TileKey k,
+                                           std::shared_ptr<HeightmapBase> h)
+{
+    Q_D(CompressedDEMFetcher);
+    d->m_compressedHeightmapCache[id][k] = std::move(h);
+    emit heightmapReady(id, k);
+}
+
+//void CompressedDEMFetcher::onInsertHeightmapCoverageASTC(quint64 id, std::shared_ptr<OpenGLTextureData> h)
+//{
+
+//}
+
+CompressedDEMFetcher::CompressedDEMFetcher(CompressedDEMFetcherPrivate &dd, QObject *parent) :  DEMFetcher(dd, parent) {}
+
+
+std::shared_ptr<HeightmapBase> CompressedDEMFetcherPrivate::compressedHeightmap(quint64 id, const TileKey k)
+{
+    const auto it = m_compressedHeightmapCache[id].find(k);
+    if (it != m_compressedHeightmapCache[id].end()) {
+        std::shared_ptr<HeightmapBase> res = std::move(it->second);
+        m_compressedHeightmapCache[id].erase(it);
+        return res;
+    }
+    return nullptr;
+}
+
+quint64 CompressedDEMFetcherPrivate::requestSlippyTiles(const QList<QGeoCoordinate> &crds, const quint8 zoom, quint8 destinationZoom, bool compound)
+{
+    Q_Q(CompressedDEMFetcher);
+    int cappedZoom = qMin<int>(zoom, m_maximumZoomLevel);
+    return NetworkManager::instance().requestSlippyTiles(*q, crds, cappedZoom, destinationZoom, compound);
+}
+
+quint64 CompressedDEMFetcherPrivate::requestCoverage(const QList<QGeoCoordinate> &, const quint8 , bool )
+{
+    qFatal("Not implemented!");
+    return 0;
+}

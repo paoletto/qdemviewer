@@ -44,6 +44,13 @@
 
 namespace  {
 constexpr const int minMipSize = 8; // was ASTCEncoder::blockSize()
+astcenc_swizzle toSwizzle(const ASTCEncoderConfig::SwizzleConfig &c) {
+    astcenc_swizzle res = {astcenc_swz(c[0]),
+                           astcenc_swz(c[1]),
+                           astcenc_swz(c[2]),
+                           astcenc_swz(c[3])};
+    return res;
+}
 }
 
 struct ASTCEncoderPrivate {
@@ -51,12 +58,7 @@ struct ASTCEncoderPrivate {
     : m_cacheDirPath(QStringLiteral("%1/astcCache.sqlite").arg(QStandardPaths::writableLocation(QStandardPaths::CacheLocation)))
     , m_tileCache(m_cacheDirPath), m_encoderConfig(ctx_)
     {
-        swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
-                    ASTCENC_SWZ_B,
-                    ASTCENC_SWZ_G,
-                    ASTCENC_SWZ_R,
-                    ASTCENC_SWZ_A
-                  };
+        swizzle = toSwizzle(ctx_.swizzle);
 
         astcenc_error status;
 
@@ -75,9 +77,10 @@ struct ASTCEncoderPrivate {
         // ... but we scale these up to keep a better balance between color and alpha. Note
         // that if the content is using alpha we'd recommend using the -a option to weight
         // the color contribution by the alpha transparency.
-        config.cw_r_weight = 0.30f * 2.25f;
-        config.cw_g_weight = 0.59f * 2.25f;
-        config.cw_b_weight = 0.11f * 2.25f;
+        config.cw_r_weight = ctx_.weights[0];
+        config.cw_g_weight = ctx_.weights[1];
+        config.cw_b_weight = ctx_.weights[2];
+        config.cw_a_weight = ctx_.weights[3]; // ToDo: figure this out! does it have to be 0? 1? what?
 
         status = astcenc_config_init(profile,
                                      m_encoderConfig.block_x,
@@ -139,10 +142,13 @@ struct astc_header
     uint8_t dim_z[3];			// block count is inferred
 };
 
-ASTCEncoder &ASTCEncoder::instance(ASTCEncoderConfig::BlockSize bs, float quality)
+ASTCEncoder &ASTCEncoder::instance(ASTCEncoderConfig::BlockSize bs,
+                                   float quality,
+                                   ASTCEncoderConfig::SwizzleConfig swizzleConfig,
+                                   ASTCEncoderConfig::ChannelWeights channelWeights)
 {
     thread_local std::map<ASTCEncoderConfig, ASTCEncoder*> instances;
-    const ASTCEncoderConfig c{bs,bs,quality};
+    const ASTCEncoderConfig c{bs,bs,quality, swizzleConfig, channelWeights};
     if (instances.find(c) == instances.end())
         instances[c] = new ASTCEncoder(c);
     return *instances[c];
@@ -335,7 +341,7 @@ void ASTCEncoder::generateMips(const QImage &ima,
                 while (isEven(halved.size())) {
                     if (halved.size().width() < minMipSize)
                         break;
-                    QByteArray compressed = ASTCEncoder::instance().compress(halved).data();
+                    QByteArray compressed = compress(halved).data();
                     if (!next.size())
                         next = compressed;
                     d->m_tileCache.insert(md5,
@@ -354,7 +360,7 @@ void ASTCEncoder::generateMips(const QImage &ima,
             }
         }
     } else {
-        out.emplace_back(ASTCEncoder::instance().compress(ima));
+        out.emplace_back(compress(ima));
         d->m_tileCache.insert(md5,
                            d->m_encoderConfig.block_x,
                            d->m_encoderConfig.block_y,
@@ -369,7 +375,7 @@ void ASTCEncoder::generateMips(const QImage &ima,
             if (size.width() < minMipSize)
                 break;
             halved = ASTCEncoder::halve(halved);
-            out.emplace_back(ASTCEncoder::instance().compress(halved));
+            out.emplace_back(compress(halved));
             d->m_tileCache.insert(md5,
                                d->m_encoderConfig.block_x,
                                d->m_encoderConfig.block_y,
