@@ -23,6 +23,7 @@
 
 #include <QImage>
 #include <QByteArray>
+#include <array>
 #include <private/qtexturefiledata_p.h>
 
 struct ASTCEncoderConfig {

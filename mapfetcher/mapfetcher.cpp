@@ -466,7 +466,7 @@ quint64 Heightmap::upload(QSharedPointer<QOpenGLTexture> &t)
 
 quint64 Heightmap::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray, int layer, int layers)
 {
-
+    return 0;
 }
 
 
