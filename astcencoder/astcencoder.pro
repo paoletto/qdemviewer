@@ -1,5 +1,6 @@
 TEMPLATE = lib
 CONFIG += staticlib
+TARGET = libastcencoder
 
 include($$PWD/../arch_helper.pri)
 DESTDIR = $$clean_path($$PWD/bin/$${ARCH_PATH}/$${CONFIG_PATH}/$${TYPE_PATH}/$${QT_MAJOR_VERSION}.$${QT_MINOR_VERSION})
@@ -12,7 +13,7 @@ QT += core sql
 QT += gui-private # TODO: make this one conditional together with ASTC support (and related inclusions below)
 
 CONFIG += c++14
-QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+
 
 INCLUDEPATH += $$PWD/astc-encoder
 
@@ -24,8 +25,18 @@ CONFIG(debug, debug|release) {
     DEFINES += "ASTCENC_SSE=42"
     DEFINES += "ASTCENC_AVX=2"
     DEFINES += "ASTCENC_POPCNT=1"
-    QMAKE_FLAGS_RELEASE += -O3 -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
-    QMAKE_CXXFLAGS_RELEASE += -O3 -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
+    QMAKE_FLAGS_RELEASE += -O3
+
+    win32: {
+        QMAKE_CXXFLAGS_RELEASE += /Ox
+        QMAKE_FLAGS_RELEASE += /arch:AVX2
+        QMAKE_CXXFLAGS_RELEASE += /arch:AVX2
+    } else {
+        QMAKE_CXXFLAGS_RELEASE += -O3
+        QMAKE_FLAGS_RELEASE += -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
+        QMAKE_CXXFLAGS_RELEASE += -mavx2 -msse4.2 -msse4.1 -mssse3 -msse3 -msse2 -msse
+        QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+    }
 }
 
 #Input

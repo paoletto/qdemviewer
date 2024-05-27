@@ -28,7 +28,9 @@ SOURCES += \
         main.cpp
 
 RESOURCES += qml.qrc
-QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+!win32: {
+    QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+}
 
 # Additional import path used to resolve QML modules in Qt Creator's code model
 QML_IMPORT_PATH =

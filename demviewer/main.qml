@@ -297,7 +297,7 @@ QC2.ApplicationWindow {
                 text: qsTr("Raster compression")
                 checkable: true
                 checked: false
-                enabled: astcSupported
+                enabled: true //astcSupported
 
                 hoverEnabled: true
                 QC2.ToolTip.visible: hovered
@@ -860,9 +860,11 @@ QC2.ApplicationWindow {
                     lightDirection: shadingSphere.pos
                     offline: offline.checked
                     logRequests: logNetworkRequests.checked
-                    astcEnabled: settings.astc && astcSupported
+
+                    astcEnabled: settings.astc // && astcSupported
 //                    astcHDREnabled: settings.astc && astcHDRSupported
                     astcHDREnabled: astcHDRSupported
+
                     fastInteraction: fastInteractionMenuItem.checked
                     autoRefinement: autoStrideMenuItem.checked
                     downsamplingRate: decimationSlider.rate

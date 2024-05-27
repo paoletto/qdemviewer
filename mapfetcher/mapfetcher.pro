@@ -1,5 +1,6 @@
 TEMPLATE = lib
 CONFIG += staticlib
+TARGET = libmapfetcher
 
 include($$PWD/../arch_helper.pri)
 DESTDIR = $$clean_path($$PWD/bin/$${ARCH_PATH}/$${CONFIG_PATH}/$${TYPE_PATH}/$${QT_MAJOR_VERSION}.$${QT_MINOR_VERSION})
@@ -14,7 +15,9 @@ QT += location-private #for QGeoCameraTiles/Private
 QT += gui-private # TODO: make this one conditional together with ASTC support (and related inclusions below)
 
 CONFIG += c++14
-QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+!win32: {
+    QMAKE_CXXFLAGS += "-fno-sized-deallocation"
+}
 
 mapfetcher_res.files = $$PWD/assets/white256.png \
                        $$PWD/assets/white256_8x8.astc \

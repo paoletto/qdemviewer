@@ -47,6 +47,7 @@
 #include <string>
 #include <cstdlib>
 #include <vector>
+#include <array>
 #include <set>
 #include <unordered_map>
 
@@ -201,7 +202,11 @@ public:
 
     Q_INVOKABLE void updateASTCSupport() {
         QQuickWindow *w = qobject_cast<QQuickWindow *>(sender());
-        if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
+        if (!w)
+            qFatal("NULL QQuickWindow");
+        const auto xtns = w->openglContext()->extensions();
+        qDebug() << xtns;
+        if (xtns.contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcSupported", true);
         }
         if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_hdr"))) {
@@ -1699,7 +1704,7 @@ int main(int argc, char *argv[])
     {
         QOpenGLContext ctx;
         QSurfaceFormat fmt;
-        fmt.setVersion(4, 5);
+        fmt.setVersion(4, 6);
         fmt.setRenderableType(QSurfaceFormat::OpenGL);
         fmt.setProfile(QSurfaceFormat::CoreProfile);
         ctx.setFormat(fmt);
@@ -1756,6 +1761,8 @@ int main(int argc, char *argv[])
             QCoreApplication::exit(-1);
 
         QQuickWindow *w = qobject_cast<QQuickWindow *>(obj);
+        if (!w)
+            qFatal("NULL QQuickWindow!");
         QObject::connect(w, &QQuickWindow::sceneGraphInitialized,
                          utilities, &Utilities::updateASTCSupport);
 
