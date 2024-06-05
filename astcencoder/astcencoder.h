@@ -39,7 +39,7 @@ struct ASTCEncoderConfig {
         BlockSize6x6 = 6,
         BlockSize8x8 = 8,
         BlockSize10x10 = 10,
-        BlockSize12x12 = 12,
+        BlockSize12x12 = 12
     };
 
     enum SwizzleComponent
@@ -58,7 +58,15 @@ struct ASTCEncoderConfig {
         ASTCENC_SWZ_1 = 5
     };
 
-
+    enum ASTCProfile
+    {
+        /** @brief The LDR linear color profile. */
+        ASTCENC_PRF_LDR = 1,
+        /** @brief The HDR RGB with LDR alpha color profile. */
+        ASTCENC_PRF_HDR_RGB_LDR_A = 2,
+        /** @brief The HDR RGBA color profile. */
+        ASTCENC_PRF_HDR = 3
+    };
 
     static constexpr const float ASTCENC_PRE_FASTEST = 0.0f;
     static constexpr const float ASTCENC_PRE_FAST = 10.0f;
@@ -77,7 +85,8 @@ struct ASTCEncoderConfig {
 
     unsigned int block_x = 8;
     unsigned int block_y = 8;
-    float quality = 85.0f;
+    unsigned int profile = 1;
+    float quality = 85.0f;   
     SwizzleConfig swizzle = { // QImage::Format_RGB32 == 0xffRRGGBB
                               ASTCENC_SWZ_B,
                               ASTCENC_SWZ_G,
@@ -99,6 +108,7 @@ class ASTCEncoder
 public:
     static ASTCEncoder& instance(ASTCEncoderConfig::BlockSize bs = ASTCEncoderConfig::BlockSize8x8,
                                  float quality = 85.f,
+                                 ASTCEncoderConfig::ASTCProfile profile = ASTCEncoderConfig::ASTCENC_PRF_LDR,
                                  ASTCEncoderConfig::SwizzleConfig swizzleConfig = { // QImage::Format_RGB32 == 0xffRRGGBB
                                     ASTCEncoderConfig::ASTCENC_SWZ_B,
                                     ASTCEncoderConfig::ASTCENC_SWZ_G,
@@ -123,11 +133,21 @@ public:
                       std::vector<QTextureFileData> &out,
                       QByteArray md5);
     static void generateMips(QImage ima, std::vector<QImage> &out);
+    void generateHDRMip(const std::vector<float> &ima,
+                         QSize size,
+                         quint64 x,
+                         quint64 y,
+                         quint64 z,
+                         bool bordersComplete,
+                         std::vector<QTextureFileData> &out,
+                         QByteArray md5);
 
     bool isCached(const QByteArray &md5);
 
 protected:
     QTextureFileData compress(QImage ima);
+    QTextureFileData compress(const std::vector<float> &ima,
+                              const QSize &size);
 
 private:
     ASTCEncoder(ASTCEncoderConfig c);

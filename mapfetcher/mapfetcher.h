@@ -147,6 +147,8 @@ struct Heightmap : public HeightmapBase, public OpenGLTextureData {
     QSize m_size;
     std::vector<float> elevations;
     bool m_hasBorders{false};
+    bool m_bordersComplete{false};
+    QByteArray m_md5;
 };
 Q_DECLARE_OPERATORS_FOR_FLAGS(Heightmap::Neighbors)
 

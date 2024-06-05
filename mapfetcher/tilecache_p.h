@@ -34,8 +34,7 @@
 #include <QDebug>
 #include <QDataStream>
 #include <QImage>
-
-QByteArray md5QImage(const QImage &i);
+#include "utils_p.h"
 
 class CompoundTileCache {
 public:

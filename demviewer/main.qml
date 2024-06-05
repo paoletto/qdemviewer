@@ -79,6 +79,7 @@ QC2.ApplicationWindow {
 
     Settings {
         id: settings
+        fileName: "C:/Users/paolo/AppData/Local/QDEMViewer/demviewer_settings.ini"
         property alias urlTemplates: root.urlTemplates
         property alias mapCenter: overlay.center
         property alias mapZoomLevel: overlay.zoomLevel
@@ -117,9 +118,9 @@ QC2.ApplicationWindow {
             mapFetcher.forwardUncompressedTiles = false
 //                    Qt.binding(function() { return settings.forwardUncompressed })
             splitView.restoreState(settings.splitViewState)
-            if (windows) {
-                fileName = StandardPaths.writableLocation(StandardPaths.AppDataLocation) + "/demviewer.ini"
-            }
+//            if (windows) {
+//                fileName = StandardPaths.writableLocation(StandardPaths.AppDataLocation) + "/demviewer.ini"
+//            }
         }
         Component.onDestruction: settings.splitViewState = splitView.saveState()
     }
@@ -165,6 +166,14 @@ QC2.ApplicationWindow {
             QC2.Action {
                 text: qsTr("Clear Graphics Data")
                 onTriggered: viewer.reset()
+            }
+            QC2.Action {
+                text: qsTr("Exit")
+                onTriggered: {
+                    settings.sync()
+                    settings.sync()
+                    Qt.quit()
+                }
             }
         }
         QC2.Menu {
@@ -595,7 +604,7 @@ QC2.ApplicationWindow {
 
                     // Do not allow rotation, to avoid headaches
                     gesture.acceptedGestures: MapGestureArea.PanGesture | MapGestureArea.FlickGesture | MapGestureArea.PinchGesture
-                    center: QtPositioning.coordinate(60.39, 5.32)
+//                    center: QtPositioning.coordinate(60.39, 5.32)
                     zoomLevel: 9
 
                     plugin: Plugin {
@@ -861,7 +870,7 @@ QC2.ApplicationWindow {
                     offline: offline.checked
                     logRequests: logNetworkRequests.checked
 
-                    astcEnabled: settings.astc // && astcSupported
+                    astcEnabled: settings.astc && astcSupported
 //                    astcHDREnabled: settings.astc && astcHDRSupported
                     astcHDREnabled: astcHDRSupported
 

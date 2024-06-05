@@ -20,6 +20,7 @@
 
 #include "utils_p.h"
 #include "astcencoder.h"
+#include <QCryptographicHash>
 #include <QOpenGLTexture>
 #include <QOpenGLPixelTransferOptions>
 #include <QOpenGLContext>
@@ -316,4 +317,11 @@ quint64 OpenGLTextureUtils::fillSingleTextureASTC(QSharedPointer<QOpenGLTexture>
     }
 
     return sz; // astc
+}
+
+QByteArray md5QImage(const QImage &i)
+{
+    QCryptographicHash h(QCryptographicHash::Md5);
+    h.addData(reinterpret_cast<const char *>(i.constBits()), i.sizeInBytes());
+    return h.result();
 }

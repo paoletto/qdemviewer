@@ -359,6 +359,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
     }
 #endif
     h.m_hasBorders = hasBorders;
+    h.m_bordersComplete = borders.size() == 8;
     return h;
 }
 

@@ -98,6 +98,23 @@ QImage assembleTileFromSubtiles(const std::set<TileData> &subCache) {
 bool isEven(const QSize &s) {
     return (s.width() % 2) == 0 && (s.height() % 2) == 0;
 }
+QRgb meters2terrarium(float meters) {
+//    Terrarium format PNG tiles contain raw elevation data in meters,
+//    in Mercator projection (EPSG:3857).
+//    All values are positive with a 32,768 offset, split into the red,
+//    green, and blue channels, with 16 bits of integer and 8 bits of fraction. To decode:
+//    (red * 256 + green + blue / 256) - 32768
+    meters += 32768;
+//            meters -= dem.minMax().first;
+    float integral;
+    float fractional = modf(meters, &integral);
+
+    int r = (int(integral) >> 8) & 0xFF;
+    int g = int(integral) & 0xFF;
+    int b = fractional * 256;
+
+    return qRgb(r,g,b);
+}
 } // namespace
 
 bool ThreadedJobQueue::JobComparator::operator()(const ThreadedJobData *l, const ThreadedJobData *r) const
@@ -735,7 +752,7 @@ bool ASTCCompressedTextureData::hasCompressedData() const
     return m_mips.size();
 }
 
-std::shared_ptr<ASTCCompressedTextureData>  ASTCCompressedTextureData::fromImage(
+std::shared_ptr<OpenGLTextureData>  ASTCCompressedTextureData::fromImage(
         const std::shared_ptr<QImage> &i,
         qint64 x,
         qint64 y,
@@ -770,10 +787,48 @@ void ASTCCompressedTextureData::initFromImage(const std::shared_ptr<QImage> &i,
                                          std::move(md5));
 }
 
-void ASTCHeightmapData::initFromImage(const std::shared_ptr<QImage> &i, qint64 x, qint64 y, qint64 z, QByteArray md5) {
-    QSize size(i->width(), i->height());
-    if (!isEven(size)) {
-        qWarning() << "Warning: cannot generate mips for size"<<size;
+quint64 ASTCHeightmapData::upload(QSharedPointer<QOpenGLTexture> &t)
+{
+    return OpenGLTextureUtils::fillSingleTextureASTC(t, m_mips);
+}
+
+quint64 ASTCHeightmapData::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
+                                           int layer,
+                                           int layers)
+{
+    return 0;
+}
+
+QSize ASTCHeightmapData::size() const
+{
+    return m_size;
+}
+
+bool ASTCHeightmapData::hasCompressedData() const
+{
+    return true;
+}
+
+//std::shared_ptr<ASTCHeightmapData> ASTCHeightmapData::fromHeightmap(
+//    const std::shared_ptr<Heightmap> &h,
+//    qint64 x,
+//    qint64 y,
+//    qint64 z,
+//    QByteArray md5)
+//{
+
+//}
+
+void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
+                                      qint64 x,
+                                      qint64 y,
+                                      qint64 z,
+                                      QByteArray md5) {
+    if (!h)
+        qFatal("NULL Heightmap!!");
+    m_size = h->size();
+    if (!isEven(m_size)) {
+        qWarning() << "Warning: cannot generate mips for size"<<h->size();
     }
 
 //    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize12x12,
@@ -782,8 +837,23 @@ void ASTCHeightmapData::initFromImage(const std::shared_ptr<QImage> &i, qint64 x
 //                                         x,y,z,
 //                                         m_mips,
 //                                         std::move(md5));
-    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize8x8,
+    m_mips.clear();
+
+    std::vector<float> expandedScaled;
+    expandedScaled.reserve(h->elevations.size() * 4);
+    auto minMax = h->minMax();
+    auto range = minMax.second - minMax.first;
+    for (const auto &e: h->elevations)  {
+        float val = (e - minMax.first) / range;
+        expandedScaled.push_back(val);
+        expandedScaled.push_back(val);
+        expandedScaled.push_back(val);
+        expandedScaled.push_back(val);
+    }
+
+    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize6x6, // 258 / 6 = 43
                           ASTCEncoderConfig::ASTCENC_PRE_EXHAUSTIVE,
+                          ASTCEncoderConfig::ASTCENC_PRF_HDR_RGB_LDR_A,
 //                          { // QImage::Format_RGB32 == 0xffRRGGBB , == BGRA?
 //                              ASTCEncoderConfig::ASTCENC_SWZ_B, // First channel, red, contains blue in the input?
 //                              ASTCEncoderConfig::ASTCENC_SWZ_G,
@@ -791,20 +861,20 @@ void ASTCHeightmapData::initFromImage(const std::shared_ptr<QImage> &i, qint64 x
 //                              ASTCEncoderConfig::ASTCENC_SWZ_A
 //                          },
                           {
-                              ASTCEncoderConfig::ASTCENC_SWZ_B,
-                              ASTCEncoderConfig::ASTCENC_SWZ_G,
+                              ASTCEncoderConfig::ASTCENC_SWZ_R,
+                              ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_A
                           },
 //                          {2.5, 0.5,0,0}
-                          {0, 3, 0, 0}
-                          ).generateMips(
-                                         *m_image,
-                                         x,y,z,
-                                         m_mips,
-                                         std::move(md5));
-    m_mips.resize(1); // just keep the first element
-
+                          {1, 1, 1, 1}
+                          ).generateHDRMip(expandedScaled,
+                                           h->size(),
+                                           x,y,z,
+                                           false, //h->m_bordersComplete,
+                                           m_mips,
+                                           std::move(md5));
+//    m_mips.resize(1); // just keep the first element
 //    m_image->save("/tmp/tile.png");
 //    QFile f("/tmp/tile.astc");
 //    f.open(QIODevice::ReadWrite | QIODevice::Truncate);
@@ -824,29 +894,11 @@ std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem
     std::shared_ptr<QImage> ima =
             std::make_shared<QImage>(dem.size(), QImage::Format_RGB32);
 
-//    Terrarium format PNG tiles contain raw elevation data in meters,
-//    in Mercator projection (EPSG:3857).
-//    All values are positive with a 32,768 offset, split into the red,
-//    green, and blue channels, with 16 bits of integer and 8 bits of fraction. To decode:
-//    (red * 256 + green + blue / 256) - 32768
-
     // convert back to rgb
-
     for (int y = 0; y < ima->size().height(); ++y) {
         for (int x = 0; x < ima->size().width(); ++x) {
             float meters = dem.elevation(x,y);
-
-            meters += 32768;
-//            meters -= dem.minMax().first;
-            float integral;
-            float fractional = modf(meters, &integral);
-
-            int r = (int(integral) >> 8) & 0xFF;
-            int g = int(integral) & 0xFF;
-            int b = fractional * 256;
-
-            QRgb rgb = qRgb(r,g,b);
-            QColor c(rgb);
+            QColor c(meters2terrarium(meters));
             ima->setPixelColor(x,y,c);
         }
     }
@@ -855,45 +907,9 @@ std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem
     std::shared_ptr<HeightmapASTC> res(new HeightmapASTC);
     // compress
     res->m_minMax = dem.minMax();
-    res->m_image = ima; // FIXME!
     res->m_bordersComputed = dem.bordersComputed();
 
-
-//    QImage red(dem.size(), QImage::Format_RGB32);
-//    QImage green(dem.size(), QImage::Format_RGB32);
-//    QImage blue(dem.size(), QImage::Format_RGB32);
-//    for (int y = 0; y < ima->size().height(); ++y) {
-//        for (int x = 0; x < ima->size().width(); ++x) {
-//            float meters = dem.elevation(x,y);
-
-//            meters += 32768;
-//            meters -= dem.minMax().first;
-//            float integral;
-//            float fractional = modf(meters, &integral);
-
-//            int r = (int(integral) >> 8) & 0xFF;
-//            int g = int(integral) & 0xFF;
-//            int b = fractional * 256;
-
-//            QRgb rgb = qRgb(r,r,r);
-//            QColor c(rgb);
-//            red.setPixelColor(x,y,c);
-
-//            QRgb rgbg = qRgb(g,g,g);
-//            QColor cg(rgbg);
-//            green.setPixelColor(x,y,cg);
-
-//            QRgb rgbb = qRgb(b,b,b);
-//            QColor cb(rgbb);
-//            blue.setPixelColor(x,y,cb);
-//        }
-//    }
-//    red.save("/tmp/tileRed.png");
-//    green.save("/tmp/tileGreen.png");
-//    blue.save("/tmp/tileBlue.png");
-
-//    qDebug() << "DEM "<<TileKey(x,y,z) << " delta: "<< dem.minMax().second - dem.minMax().first;
-    if (!NetworkConfiguration::astcEnabled || true) // FIXME reenable astc encoding one the scheme is clear
+    if (!NetworkConfiguration::astcEnabled) // FIXME reenable astc encoding one the scheme is clear
         return res;
 
 #if 0
@@ -909,20 +925,16 @@ std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem
     }
 #endif
 
-    res->initFromImage(ima, x,y,z, std::move(md5));
+    res->initFromHeightmap(&dem, x,y,z, std::move(md5));
     return res;
 }
 
 quint64 HeightmapASTC::upload(QSharedPointer<QOpenGLTexture> &t) {
-    // TODO: change to HDR float
-    if (!NetworkConfiguration::astcEnabled || !m_mips.size())
-        return OpenGLTextureUtils::fillSingleTextureUncompressed(t, m_image);
-    else
-        return OpenGLTextureUtils::fillSingleTextureASTC(t, m_mips);
+    return ASTCHeightmapData::upload(t);
 }
 
 quint64 HeightmapASTC::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray, int layer, int layers) {
-    return ASTCCompressedTextureData::uploadTo2DArray(texArray, layer, layers);
+    return ASTCHeightmapData::uploadTo2DArray(texArray, layer, layers);
 }
 
 quint64 HeightmapBPTC::upload(QSharedPointer<QOpenGLTexture> &t)
@@ -945,7 +957,7 @@ quint64 HeightmapBPTC::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
 bool HeightmapASTC::bordersComputed() const { return m_bordersComputed; }
 
 QSize HeightmapASTC::size() const {
-    return ASTCCompressedTextureData::size();
+    return ASTCHeightmapData::size();
 }
 
 

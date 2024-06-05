@@ -21,7 +21,6 @@
 #include "tilecache_p.h"
 #include <QFileInfo>
 #include <QRandomGenerator>
-#include <QCryptographicHash>
 #include <QStandardPaths>
 
 namespace {
@@ -310,9 +309,3 @@ quint64 CompoundTileCache::cacheSize()
     return fi.size();
 }
 
-QByteArray md5QImage(const QImage &i)
-{
-    QCryptographicHash h(QCryptographicHash::Md5);
-    h.addData(reinterpret_cast<const char *>(i.constBits()), i.sizeInBytes());
-    return h.result();
-}

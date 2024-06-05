@@ -1,6 +1,7 @@
 TEMPLATE = lib
 CONFIG += staticlib
-TARGET = libmapfetcher
+
+win32: TARGET = libmapfetcher
 
 include($$PWD/../arch_helper.pri)
 DESTDIR = $$clean_path($$PWD/bin/$${ARCH_PATH}/$${CONFIG_PATH}/$${TYPE_PATH}/$${QT_MAJOR_VERSION}.$${QT_MINOR_VERSION})

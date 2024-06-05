@@ -27,6 +27,8 @@
 #include <QOpenGLTexture>
 #include <private/qtexturefiledata_p.h>
 
+QByteArray md5QImage(const QImage &i);
+
 struct URLTemplate {
     QString hostWildcarded;
     QList<QString> hostAlternatives;

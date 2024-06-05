@@ -204,6 +204,11 @@ public:
         QQuickWindow *w = qobject_cast<QQuickWindow *>(sender());
         if (!w)
             qFatal("NULL QQuickWindow");
+        return updateASTCSupport(*w);
+    }
+
+    void updateASTCSupport(QQuickWindow &win) {
+        QQuickWindow *w = &win;
         const auto xtns = w->openglContext()->extensions();
         qDebug() << xtns;
         if (xtns.contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
@@ -671,9 +676,13 @@ protected:
 //    QScopedPointer<QOpenGLShaderProgram> m_shader;
 //    QScopedPointer<QOpenGLShaderProgram> m_shaderTextured;
     QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextured;
-    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTexturedTerrarium;
     QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextureArrayd;
+
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTexturedTerrarium;
     QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextureArraydTerrarium;
+
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTexturedCompressed;
+    QScopedPointer<QOpenGLShaderProgram> m_shaderJoinedDownsampledTextureArraydCompressed;
     QScopedPointer<QOpenGLTexture> m_texWhite;
 
 public:
@@ -1450,25 +1459,16 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
 
         QByteArray baVertex = QByteArray(headerDEMFloat) + QByteArray(vertexShaderTileJoinedDownsampled);
         QByteArray baVertexTerrarium = QByteArray(headerDEMTerrarium) + QByteArray(vertexShaderTileJoinedDownsampled);
+        QByteArray baVertexCompressedFloat = QByteArray(headerDEMCompressedFloat) + QByteArray(vertexShaderTileJoinedDownsampled);
 
-        m_renderer.m_shaderJoinedDownsampledTextured.reset(new QOpenGLShaderProgram);
         // Create shaders
+        m_renderer.m_shaderJoinedDownsampledTextured.reset(new QOpenGLShaderProgram);
         m_renderer.m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Vertex,
                                           baVertex);
         m_renderer.m_shaderJoinedDownsampledTextured->addShaderFromSourceCode(QOpenGLShader::Fragment,
                                           QByteArray(fragmentShaderTileTextured));
         m_renderer.m_shaderJoinedDownsampledTextured->link();
         m_renderer.m_shaderJoinedDownsampledTextured->setObjectName("shaderJoinedDownsampledTextured");
-
-
-        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium.reset(new QOpenGLShaderProgram);
-        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Vertex,
-                                          baVertexTerrarium);
-        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                          QByteArray(fragmentShaderTileTextured));
-        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->link();
-        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->setObjectName("shaderJoinedDownsampledTexturedTerrarium");
-
 
         m_renderer.m_shaderJoinedDownsampledTextureArrayd.reset(new QOpenGLShaderProgram);
         m_renderer.m_shaderJoinedDownsampledTextureArrayd->addShaderFromSourceCode(QOpenGLShader::Vertex,
@@ -1479,6 +1479,15 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
         m_renderer.m_shaderJoinedDownsampledTextureArrayd->setObjectName("shaderJoinedDownsampledTextureArrayd");
 
 
+
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          baVertexTerrarium);
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextured));
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->link();
+        m_renderer.m_shaderJoinedDownsampledTexturedTerrarium->setObjectName("shaderJoinedDownsampledTexturedTerrarium");
+
         m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium.reset(new QOpenGLShaderProgram);
         m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->addShaderFromSourceCode(QOpenGLShader::Vertex,
                                           baVertexTerrarium);
@@ -1486,6 +1495,28 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
                                           QByteArray(fragmentShaderTileTextureArrayd));
         m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->link();
         m_renderer.m_shaderJoinedDownsampledTextureArraydTerrarium->setObjectName("shaderJoinedDownsampledTextureArraydTerrarium");
+
+
+
+
+
+        m_renderer.m_shaderJoinedDownsampledTexturedCompressed.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shaderJoinedDownsampledTexturedCompressed->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          baVertexCompressedFloat);
+        m_renderer.m_shaderJoinedDownsampledTexturedCompressed->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextured));
+        m_renderer.m_shaderJoinedDownsampledTexturedCompressed->link();
+        m_renderer.m_shaderJoinedDownsampledTexturedCompressed->setObjectName("shaderJoinedDownsampledTexturedCompressed");
+
+        m_renderer.m_shaderJoinedDownsampledTextureArraydCompressed.reset(new QOpenGLShaderProgram);
+        m_renderer.m_shaderJoinedDownsampledTextureArraydCompressed->addShaderFromSourceCode(QOpenGLShader::Vertex,
+                                          baVertexCompressedFloat);
+        m_renderer.m_shaderJoinedDownsampledTextureArraydCompressed->addShaderFromSourceCode(QOpenGLShader::Fragment,
+                                          QByteArray(fragmentShaderTileTextureArrayd));
+        m_renderer.m_shaderJoinedDownsampledTextureArraydCompressed->link();
+        m_renderer.m_shaderJoinedDownsampledTextureArraydCompressed->setObjectName("shaderJoinedDownsampledTextureArraydCompressed");
+
+
 
 
         m_renderer.m_texWhite.reset(new QOpenGLTexture(QOpenGLTexture::Target2D));
@@ -1533,12 +1564,17 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
     QOpenGLShaderProgram *shader;
     QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
     f->glEnable(GL_TEXTURE_2D);
-    if (m_demFormat == HeightmapBase::Format::Float
-            || m_demFormat == HeightmapBase::Format::CompressedFloat) {
+    if (m_demFormat == HeightmapBase::Format::Float) {
         if (rasterTxt && rasterTxt->layers() > 1) {
             shader = m_renderer.m_shaderJoinedDownsampledTextureArrayd.get();
         } else {
             shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
+        }
+    } else if (m_demFormat == HeightmapBase::Format::CompressedFloat) {
+        if (rasterTxt && rasterTxt->layers() > 1) {
+            shader = m_renderer.m_shaderJoinedDownsampledTextureArraydCompressed.get();
+        } else {
+            shader = m_renderer.m_shaderJoinedDownsampledTexturedCompressed.get();
         }
     } else {
         if (rasterTxt && rasterTxt->layers() > 1) {
@@ -1580,7 +1616,7 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
 
     shader->setUniformValue("raster", 0);
     shader->setUniformValue("dem", 1);
-    shader->setUniformValue("minElevation", m_minMaxElevation.first);
+    shader->setUniformValue("minMaxElevation", QVector2D(m_minMaxElevation.first, m_minMaxElevation.second));
     shader->setUniformValue("elevationScale", elevationScale);
     shader->setUniformValue("matrix", m);
     shader->setUniformValue("color", QColor(255,255,255,255));
@@ -1761,11 +1797,17 @@ int main(int argc, char *argv[])
             QCoreApplication::exit(-1);
 
         QQuickWindow *w = qobject_cast<QQuickWindow *>(obj);
-        if (!w)
-            qFatal("NULL QQuickWindow!");
-        QObject::connect(w, &QQuickWindow::sceneGraphInitialized,
-                         utilities, &Utilities::updateASTCSupport);
-
+        if (!w) {
+            qWarning() << "FOO" << obj;
+            qWarning("aa NULL QQuickWindow!");
+            QCoreApplication::exit(-1);
+        }
+        if (w->isSceneGraphInitialized()) {
+            utilities->updateASTCSupport(*w);
+        } else {
+            QObject::connect(w, &QQuickWindow::sceneGraphInitialized,
+                             utilities, qOverload<>(&Utilities::updateASTCSupport));
+        }
     }, Qt::QueuedConnection);
 
     qInfo() << "Network cache dir: " << MapFetcher::networkCachePath();

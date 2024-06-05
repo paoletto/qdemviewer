@@ -79,9 +79,18 @@ float fetchDEM(ivec2 texelCoord) {
 static constexpr char headerDEMFloat[] = R"(
 #version 450 core
 uniform sampler2D dem;
-uniform float minElevation;
+uniform vec2 minMaxElevation;
 float fetchDEM(ivec2 texelCoord) {
     return texelFetch(dem, texelCoord, 0).r;
+}
+)";
+
+static constexpr char headerDEMCompressedFloat[] = R"(
+#version 450 core
+uniform sampler2D dem;
+uniform vec2 minMaxElevation;
+float fetchDEM(ivec2 texelCoord) {
+    return texelFetch(dem, texelCoord, 0).r * (minMaxElevation.y - minMaxElevation.x) + minMaxElevation.x;
 }
 )";
 
@@ -98,15 +107,15 @@ float fetchDEM(ivec2 texelCoord) {
 static constexpr char headerDEMTerrarium[] = R"(
 #version 450 core
 uniform sampler2D dem;
-uniform float minElevation;
+uniform vec2 minMaxElevation;
 
 float fetchDEM(ivec2 texelCoord) {
     vec4 t = texelFetch(dem, texelCoord, 0).rgba * vec4(256.,256.,256., 256.);
 //    return (t.a * 256. + t.r + t.b * 0.00390625) - 32768.; // 1 / 256 = 0.00390625
     return (t.r * 256. + t.g + t.b * 0.00390625) - 32768.; // 1 / 256 = 0.00390625
 //    return (t.r * 256. + t.g + t.b / 256.)  // 1 / 256 = 0.00390625
-//    return (t.r * 256. + t.g) + minElevation; // 1 / 256 = 0.00390625
-//    return (0 * 256. + t.g) + minElevation; // 1 / 256 = 0.00390625
+//    return (t.r * 256. + t.g) + minMaxElevation.x; // 1 / 256 = 0.00390625
+//    return (0 * 256. + t.g) + minMaxElevation.x; // 1 / 256 = 0.00390625
 //    return (t.r * 256. + t.g) - 32768.; // 1 / 256 = 0.00390625
 }
 )";

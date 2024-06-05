@@ -144,11 +144,17 @@ struct astc_header
 
 ASTCEncoder &ASTCEncoder::instance(ASTCEncoderConfig::BlockSize bs,
                                    float quality,
+                                   ASTCEncoderConfig::ASTCProfile profile,
                                    ASTCEncoderConfig::SwizzleConfig swizzleConfig,
                                    ASTCEncoderConfig::ChannelWeights channelWeights)
 {
     thread_local std::map<ASTCEncoderConfig, ASTCEncoder*> instances;
-    const ASTCEncoderConfig c{bs,bs,quality, swizzleConfig, channelWeights};
+    const ASTCEncoderConfig c{bs,
+                              bs,
+                              profile,
+                              quality,
+                              swizzleConfig,
+                              channelWeights};
     if (instances.find(c) == instances.end())
         instances[c] = new ASTCEncoder(c);
     return *instances[c];
@@ -171,8 +177,8 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
     image.dim_y = ima.height();
     image.dim_z = 1;
     image.data_type = ASTCENC_TYPE_U8;
-    uint8_t* slices = ima.bits();
-    image.data = reinterpret_cast<void**>(&slices);
+    const uint8_t* slices = ima.bits();
+    image.data = reinterpret_cast<void**>(const_cast<uint8_t *>(slices));
 
     // Space needed for 16 bytes of output per compressed block
     size_t comp_len = block_count_x * block_count_y * 16;
@@ -191,6 +197,95 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
         qWarning() << "ERROR: Codec compress failed: "
                         << astcenc_get_error_string(status)
                         <<  " " << data.size() << " " << ima.size();
+        qFatal("Terminating");
+    }
+
+    astc_header hdr;
+    hdr.magic[0] =  d->ASTC_MAGIC_ID        & 0xFF;
+    hdr.magic[1] = (d->ASTC_MAGIC_ID >>  8) & 0xFF;
+    hdr.magic[2] = (d->ASTC_MAGIC_ID >> 16) & 0xFF;
+    hdr.magic[3] = (d->ASTC_MAGIC_ID >> 24) & 0xFF;
+
+    hdr.block_x = static_cast<uint8_t>(d->m_encoderConfig.block_x);
+    hdr.block_y = static_cast<uint8_t>(d->m_encoderConfig.block_y);
+    hdr.block_z = static_cast<uint8_t>(1);
+
+    hdr.dim_x[0] =  image.dim_x        & 0xFF;
+    hdr.dim_x[1] = (image.dim_x >>  8) & 0xFF;
+    hdr.dim_x[2] = (image.dim_x >> 16) & 0xFF;
+
+    hdr.dim_y[0] =  image.dim_y       & 0xFF;
+    hdr.dim_y[1] = (image.dim_y >>  8) & 0xFF;
+    hdr.dim_y[2] = (image.dim_y >> 16) & 0xFF;
+
+    hdr.dim_z[0] =  image.dim_z        & 0xFF;
+    hdr.dim_z[1] = (image.dim_z >>  8) & 0xFF;
+    hdr.dim_z[2] = (image.dim_z >> 16) & 0xFF;
+
+    QByteArray header(reinterpret_cast<char*>(&hdr)
+                      ,sizeof(astc_header));
+    data.insert(0, header);
+    QBuffer buf(&data);
+    buf.open(QIODevice::ReadOnly);
+    if (!buf.isReadable())
+        qFatal("QBuffer not readable");
+    QTextureFileReader reader(&buf);
+    if (!reader.canRead())
+        qFatal("QTextureFileReader failed reading");
+    QTextureFileData res = reader.read();
+    return res;
+}
+
+
+QTextureFileData ASTCEncoder::compress(const std::vector<float> &ima,
+                                       const QSize &size) { // Check whether astcenc_compress_image modifies astcenc_image::data. If not, consider using const & and const_cast.
+    unsigned int block_count_x = (size.width() + d->m_encoderConfig.block_x - 1)
+                                 / d->m_encoderConfig.block_x;
+    unsigned int block_count_y = (size.height() + d->m_encoderConfig.block_y - 1)
+                                 / d->m_encoderConfig.block_y;
+
+    // Compress the image
+    astcenc_image image;
+    image.dim_x = size.width();
+    image.dim_y = size.height();
+    image.dim_z = 1;
+    image.data_type = ASTCENC_TYPE_F32;
+    // most likely need 4 channels
+
+    float *expanded;
+    bool needExpansion = (ima.size() < size.width() * size.height() * 4);
+    if (needExpansion) {
+        expanded = new float[ima.size() * 4];
+        for (int i = 0; i < ima.size() * 4; ++i) {
+            expanded[i] = ima.at(i / 4);
+        }
+    } else {
+        expanded = const_cast<float *>(&ima.front());
+    }
+
+    void **dd = reinterpret_cast<void**>(&expanded);
+//    qDebug() << expanded << " " << dd;
+    image.data = dd;
+
+    // Space needed for 16 bytes of output per compressed block
+    size_t comp_len = block_count_x * block_count_y * 16;
+
+    QByteArray data;
+    data.resize(comp_len);
+
+
+    astcenc_error status = astcenc_compress_image(d->m_ctx.get(),
+                                                  &image,
+                                                  &d->swizzle,
+                                                  reinterpret_cast<uint8_t *>(data.data()),
+                                                  comp_len,
+                                                  0);
+    if (needExpansion)
+        delete[] expanded;
+    if (status != ASTCENC_SUCCESS || !data.size()) {
+        qWarning() << "ERROR: Codec compress failed: "
+                   << astcenc_get_error_string(status)
+                   <<  " " << data.size() << " " << ima.size();
         qFatal("Terminating");
     }
 
@@ -295,6 +390,44 @@ void ASTCEncoder::generateMips(QImage ima, std::vector<QImage> &out)
             break;
         halved = ASTCEncoder::halve(halved);
         out.emplace_back(halved.convertToFormat(QImage::Format_RGBA8888));
+    }
+}
+
+void ASTCEncoder::generateHDRMip(const std::vector<float> &ima,
+                     QSize size,
+                     quint64 x,
+                     quint64 y,
+                     quint64 z,
+                     bool bordersComplete,
+                     std::vector<QTextureFileData> &out,
+                     QByteArray md5)
+{
+    if (!md5.size()) {
+        qWarning() << "Missing MD5 hash!";
+        return;
+    }
+
+    QByteArray cached = d->m_tileCache.tile(md5,
+                                            d->m_encoderConfig.block_x,
+                                            d->m_encoderConfig.block_y,
+                                            d->m_encoderConfig.quality,
+                                            size.width(),
+                                            size.height());
+
+    if (cached.size()) {
+        out.push_back(fromCached(cached));
+    } else {
+        out.emplace_back(compress(ima, size));
+        if (bordersComplete) {
+            d->m_tileCache.insert(md5,
+                                  d->m_encoderConfig.block_x,
+                                  d->m_encoderConfig.block_y,
+                                  d->m_encoderConfig.quality,
+                                  size.width(),
+                                  size.height(),
+                                  x,y,z,
+                                  out.back().data());
+        }
     }
 }
 

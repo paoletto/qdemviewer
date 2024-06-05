@@ -233,7 +233,7 @@ struct ASTCCompressedTextureData : public OpenGLTextureData {
     QSize size() const override;
     bool hasCompressedData() const override;
 
-    static std::shared_ptr<ASTCCompressedTextureData> fromImage(
+    static std::shared_ptr<OpenGLTextureData> fromImage(
                                         const std::shared_ptr<QImage> &i,
                                         qint64 x,
                                         qint64 y,
@@ -251,15 +251,31 @@ protected:
                        QByteArray md5);
 };
 
-struct ASTCHeightmapData : public ASTCCompressedTextureData {
+struct ASTCHeightmapData : public OpenGLTextureData {
     ASTCHeightmapData() = default;
     ~ASTCHeightmapData() override = default;
+
+    quint64 upload(QSharedPointer<QOpenGLTexture> &t) override;
+    quint64 uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
+                            int layer,
+                            int layers) override;
+    QSize size() const override;
+    bool hasCompressedData() const override;
+
+//    static std::shared_ptr<ASTCHeightmapData> fromHeightmap(const std::shared_ptr<Heightmap> &h,
+//        qint64 x,
+//        qint64 y,
+//        qint64 z,
+//        QByteArray md5);
+
 protected:
-    void initFromImage(const std::shared_ptr<QImage> &i,
+    void initFromHeightmap(const Heightmap *h,
                        qint64 x,
                        qint64 y,
                        qint64 z,
-                       QByteArray md5) override;
+                       QByteArray md5);
+    QSize m_size;
+    std::vector<QTextureFileData> m_mips;
 };
 
 class ASTCFetcherPrivate :  public MapFetcherPrivate

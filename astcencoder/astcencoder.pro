@@ -1,6 +1,6 @@
 TEMPLATE = lib
 CONFIG += staticlib
-TARGET = libastcencoder
+win32:  TARGET = libastcencoder
 
 include($$PWD/../arch_helper.pri)
 DESTDIR = $$clean_path($$PWD/bin/$${ARCH_PATH}/$${CONFIG_PATH}/$${TYPE_PATH}/$${QT_MAJOR_VERSION}.$${QT_MINOR_VERSION})
@@ -18,6 +18,7 @@ CONFIG += c++14
 INCLUDEPATH += $$PWD/astc-encoder
 
 CONFIG(debug, debug|release) {
+    message($$DESTDIR)
 } else {
     #DEFINES += "ASTCENC_ISA_AVX2=ON"
     #DEFINES += "ASTCENC_NEON=0"
