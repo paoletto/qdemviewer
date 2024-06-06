@@ -1791,6 +1791,7 @@ int main(int argc, char *argv[])
     engine.rootContext()->setContextProperty("arcball", arcball);
     engine.rootContext()->setContextProperty("mapFetcher", rasterFetcher);
     engine.rootContext()->setContextProperty("astcSupported", false);
+    engine.rootContext()->setContextProperty("astcHDRSupported", false);
     engine.rootContext()->setContextProperty("windows", windows);
 
     const QUrl url(QStringLiteral("qrc:/main.qml"));
