@@ -414,7 +414,7 @@ void ASTCEncoder::generateHDRMip(const std::vector<float> &ima,
                                             size.width(),
                                             size.height());
 
-    if (cached.size()) {
+    if (cached.size() && false) {
         out.push_back(fromCached(cached));
     } else {
         out.emplace_back(compress(ima, size));

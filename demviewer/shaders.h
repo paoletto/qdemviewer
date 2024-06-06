@@ -176,7 +176,9 @@ vec4 neighbor(int id, int x, int y) {
                float(iiY) + cOff,
                elevation,
                1) * gridScaling;
-    res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
+//    res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
+    res.x = clamp(res.x, 0, 1);
+    res.y = clamp(res.y, 0, 1);
     return res;
 }
 

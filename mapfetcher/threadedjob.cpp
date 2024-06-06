@@ -709,6 +709,7 @@ void Heightmap2CompressedTextureHandler::process()
 //    emit insertCompressedHeightmap(d->m_id, d->m_k, std::move(heightmap));
 //    emit insertCompressedHeightmap(d->m_id, d->m_k, std::move(d->m_heightmap));
 
+    qDebug() << "Heightmap2CompressedTextureHandler finished "<<d->m_k;
     emit insertCompressedHeightmap(d->m_id, d->m_k, std::move(res));
 }
 
@@ -841,10 +842,11 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
 
     std::vector<float> expandedScaled;
     expandedScaled.reserve(h->elevations.size() * 4);
-    auto minMax = h->minMax();
-    auto range = minMax.second - minMax.first;
-    for (const auto &e: h->elevations)  {
+    QPair<float, float> minMax = h->minMax();
+    float range = minMax.second - minMax.first;
+    for (const float &e: h->elevations)  {
         float val = (e - minMax.first) / range;
+//        qDebug() << e <<   minMax.first << range << val;
         expandedScaled.push_back(val);
         expandedScaled.push_back(val);
         expandedScaled.push_back(val);
@@ -852,6 +854,7 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
     }
 
     ASTCEncoder::instance(ASTCEncoderConfig::BlockSize6x6, // 258 / 6 = 43
+//                          ASTCEncoderConfig::ASTCENC_PRE_THOROUGH,
                           ASTCEncoderConfig::ASTCENC_PRE_EXHAUSTIVE,
                           ASTCEncoderConfig::ASTCENC_PRF_HDR_RGB_LDR_A,
 //                          { // QImage::Format_RGB32 == 0xffRRGGBB , == BGRA?
@@ -864,7 +867,7 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
-                              ASTCEncoderConfig::ASTCENC_SWZ_A
+                              ASTCEncoderConfig::ASTCENC_SWZ_R
                           },
 //                          {2.5, 0.5,0,0}
                           {1, 1, 1, 1}
@@ -876,7 +879,7 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
                                            std::move(md5));
 //    m_mips.resize(1); // just keep the first element
 //    m_image->save("/tmp/tile.png");
-//    QFile f("/tmp/tile.astc");
+//    QFile f("C:/Temp/tile.astc");
 //    f.open(QIODevice::ReadWrite | QIODevice::Truncate);
 //    f.write(m_mips.front().data());
 //    f.close();

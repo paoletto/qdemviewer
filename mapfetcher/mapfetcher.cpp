@@ -213,20 +213,15 @@ Heightmap Heightmap::fromImage(const QImage &dem,
 
     const bool hasBorders = borders.size();
     h.setSize((!hasBorders) ? dem.size() : dem.size() + QSize(2,2));
-    float min_ = std::numeric_limits<float>::max();
-    float max_ = std::numeric_limits<float>::min();
+
     for (int y = 0; y < dem.height(); ++y) {
         for (int x = 0; x < dem.width(); ++x) {
             const float elevationMeters = elevationFromPixel(dem, x, y);
             h.setElevation( x + ((hasBorders) ? 1 : 0)
                            ,y + ((hasBorders) ? 1 : 0)
                            ,elevationMeters);
-            max_ = std::max(elevationMeters,max_);
-            min_ = std::min(elevationMeters,min_);
         }
     }
-
-    h.m_minMax = QPair<float, float>(min_, max_);
 
 #if 0
      // cloning neighbor value
@@ -360,6 +355,13 @@ Heightmap Heightmap::fromImage(const QImage &dem,
 #endif
     h.m_hasBorders = hasBorders;
     h.m_bordersComplete = borders.size() == 8;
+    float min_ = std::numeric_limits<float>::max();
+    float max_ = std::numeric_limits<float>::min();
+    for (auto &e: h.elevations) {
+        max_ = std::max(e,max_);
+        min_ = std::min(e,min_);
+    }
+    h.m_minMax = QPair<float, float>(min_, max_);
     return h;
 }
 

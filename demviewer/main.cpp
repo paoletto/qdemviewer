@@ -210,11 +210,11 @@ public:
     void updateASTCSupport(QQuickWindow &win) {
         QQuickWindow *w = &win;
         const auto xtns = w->openglContext()->extensions();
-        qDebug() << xtns;
+//        qDebug() << xtns;
         if (xtns.contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcSupported", true);
         }
-        if (w->openglContext()->extensions().contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_hdr"))) {
+        if (xtns.contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_hdr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcHDRSupported", true);
         }
         m_window = w;
@@ -1272,7 +1272,10 @@ protected slots:
     }
 
     void onCompressedDEMReady(quint64 id, const TileKey k) {
-        m_newTiles[k] =  m_compressedDEMFetcher->compressedHeightmap(id, k);
+
+        auto chm = m_compressedDEMFetcher->compressedHeightmap(id, k);
+        qDebug() << "chmready" << id<< " " <<k<< " " <<chm.get()<< " " <<chm->minMax();
+        m_newTiles[k] =  std::move(chm);
         delayedUpdate();
     }
 
