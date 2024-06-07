@@ -671,7 +671,7 @@ protected:
 struct HeightmapASTC: public HeightmapBase, public ASTCHeightmapData
 {
     ~HeightmapASTC() override = default;
-    static std::shared_ptr<HeightmapBase> fromHeightmap(const Heightmap &dem,
+    static std::shared_ptr<HeightmapBase> fromHeightmap(Heightmap &dem,
                                        qint64 x,
                                        qint64 y,
                                        qint64 z);
@@ -704,12 +704,7 @@ void Heightmap2CompressedTextureHandler::process()
     } else {
         res = std::make_shared<HeightmapBPTC>(std::move(*h));
     }
-    // emit
-//    std::shared_ptr<CompressedHeightmap> heightmap = std::static_pointer_cast<Heightmap>(d->m_heightmap);
-//    emit insertCompressedHeightmap(d->m_id, d->m_k, std::move(heightmap));
-//    emit insertCompressedHeightmap(d->m_id, d->m_k, std::move(d->m_heightmap));
 
-    qDebug() << "Heightmap2CompressedTextureHandler finished "<<d->m_k;
     emit insertCompressedHeightmap(d->m_id, d->m_k, std::move(res));
 }
 
@@ -829,7 +824,7 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
     expandedScaled.reserve(h->elevations.size() * 4);
     QPair<float, float> minMax = h->minMax();
     float range = minMax.second - minMax.first;
-    for (const float &e: h->elevations)  {
+    for (const float &e: h->elevations)  { // TODO: do this after missing the cache!
         float val = (e - minMax.first) / range;
 
         expandedScaled.push_back(val);
@@ -851,29 +846,16 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
                           ).generateHDRMip(expandedScaled,
                                            h->size(),
                                            x,y,z,
-                                           h->m_bordersComplete,
+                                           false, //h->m_bordersComplete, TODO figure what's broken with this
                                            m_mips,
                                            std::move(md5));
 }
 
-std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem,
+std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(Heightmap &dem,
                                            qint64 x,
                                            qint64 y,
                                            qint64 z)
 {
-    std::shared_ptr<QImage> ima =
-            std::make_shared<QImage>(dem.size(), QImage::Format_RGB32);
-
-    // convert back to rgb
-    for (int y = 0; y < ima->size().height(); ++y) {
-        for (int x = 0; x < ima->size().width(); ++x) {
-            float meters = dem.elevation(x,y);
-            QColor c(meters2terrarium(meters));
-            ima->setPixelColor(x,y,c);
-        }
-    }
-
-    auto md5 = md5QImage(*ima); // TODO: ship this with Heightmap instead
     std::shared_ptr<HeightmapASTC> res(new HeightmapASTC);
 
     res->m_minMax = dem.minMax();
@@ -883,7 +865,7 @@ std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem
         return res;
 
     // compress
-    res->initFromHeightmap(&dem, x,y,z, std::move(md5));
+    res->initFromHeightmap(&dem, x,y,z, std::move(dem.m_md5)); // discarding dem anyway
     return res;
 }
 

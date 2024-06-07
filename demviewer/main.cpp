@@ -1277,7 +1277,6 @@ protected slots:
     void onCompressedDEMReady(quint64 id, const TileKey k) {
 
         auto chm = m_compressedDEMFetcher->compressedHeightmap(id, k);
-        qDebug() << "chmready" << id<< " " <<k<< " " <<chm.get()<< " " <<chm->minMax();
         m_newTiles[k] =  std::move(chm);
         delayedUpdate();
     }

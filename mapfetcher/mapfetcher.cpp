@@ -211,6 +211,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
         return res;
     };
 
+    h.m_md5 = md5QImage(dem); // ignore borders, they are handled separately anyway
     const bool hasBorders = borders.size();
     h.setSize((!hasBorders) ? dem.size() : dem.size() + QSize(2,2));
 
