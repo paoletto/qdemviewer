@@ -79,7 +79,6 @@ QC2.ApplicationWindow {
 
     Settings {
         id: settings
-
         property alias urlTemplates: root.urlTemplates
         property alias mapCenter: overlay.center
         property alias mapZoomLevel: overlay.zoomLevel
