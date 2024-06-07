@@ -79,7 +79,7 @@ QC2.ApplicationWindow {
 
     Settings {
         id: settings
-        fileName: "C:/Users/paolo/AppData/Local/QDEMViewer/demviewer_settings.ini"
+
         property alias urlTemplates: root.urlTemplates
         property alias mapCenter: overlay.center
         property alias mapZoomLevel: overlay.zoomLevel
