@@ -853,7 +853,7 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
         expandedScaled.push_back(val);
     }
 
-    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize6x6, // 258 / 6 = 43
+    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize12x12, // 258 / 6 = 43
 //                          ASTCEncoderConfig::ASTCENC_PRE_THOROUGH,
                           ASTCEncoderConfig::ASTCENC_PRE_EXHAUSTIVE,
                           ASTCEncoderConfig::ASTCENC_PRF_HDR_RGB_LDR_A,
