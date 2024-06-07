@@ -210,9 +210,12 @@ public:
     void updateASTCSupport(QQuickWindow &win) {
         QQuickWindow *w = &win;
         const auto xtns = w->openglContext()->extensions();
-//        qDebug() << xtns;
         if (xtns.contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_ldr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcSupported", true);
+
+            // Intel HD Graphics seems to work on linux as well despite the missing extension
+            // TODO check vendor here, get it somehow.
+            qmlContext(w)->engine()->rootContext()->setContextProperty("astcHDRSupported", true);
         }
         if (xtns.contains(QByteArrayLiteral("GL_KHR_texture_compression_astc_hdr"))) {
             qmlContext(w)->engine()->rootContext()->setContextProperty("astcHDRSupported", true);

@@ -797,6 +797,7 @@ quint64 ASTCHeightmapData::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texAr
                                            int layer,
                                            int layers)
 {
+    qFatal("Not Implemented!");
     return 0;
 }
 
@@ -810,16 +811,6 @@ bool ASTCHeightmapData::hasCompressedData() const
     return true;
 }
 
-//std::shared_ptr<ASTCHeightmapData> ASTCHeightmapData::fromHeightmap(
-//    const std::shared_ptr<Heightmap> &h,
-//    qint64 x,
-//    qint64 y,
-//    qint64 z,
-//    QByteArray md5)
-//{
-
-//}
-
 void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
                                       qint64 x,
                                       qint64 y,
@@ -832,12 +823,6 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
         qWarning() << "Warning: cannot generate mips for size"<<h->size();
     }
 
-//    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize12x12,
-//                          ASTCEncoderConfig::ASTCENC_PRE_THOROUGH).generateMips(
-//                                         *m_image,
-//                                         x,y,z,
-//                                         m_mips,
-//                                         std::move(md5));
     m_mips.clear();
 
     std::vector<float> expandedScaled;
@@ -846,47 +831,29 @@ void ASTCHeightmapData::initFromHeightmap(const Heightmap *h,
     float range = minMax.second - minMax.first;
     for (const float &e: h->elevations)  {
         float val = (e - minMax.first) / range;
-//        qDebug() << e <<   minMax.first << range << val;
+
         expandedScaled.push_back(val);
         expandedScaled.push_back(val);
         expandedScaled.push_back(val);
         expandedScaled.push_back(val);
     }
 
-    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize12x12, // 258 / 6 = 43
-//                          ASTCEncoderConfig::ASTCENC_PRE_THOROUGH,
+    ASTCEncoder::instance(ASTCEncoderConfig::BlockSize12x12,
                           ASTCEncoderConfig::ASTCENC_PRE_EXHAUSTIVE,
                           ASTCEncoderConfig::ASTCENC_PRF_HDR_RGB_LDR_A,
-//                          { // QImage::Format_RGB32 == 0xffRRGGBB , == BGRA?
-//                              ASTCEncoderConfig::ASTCENC_SWZ_B, // First channel, red, contains blue in the input?
-//                              ASTCEncoderConfig::ASTCENC_SWZ_G,
-//                              ASTCEncoderConfig::ASTCENC_SWZ_R,
-//                              ASTCEncoderConfig::ASTCENC_SWZ_A
-//                          },
                           {
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_R,
                               ASTCEncoderConfig::ASTCENC_SWZ_R
                           },
-//                          {2.5, 0.5,0,0}
                           {1, 1, 1, 1}
                           ).generateHDRMip(expandedScaled,
                                            h->size(),
                                            x,y,z,
-                                           false, //h->m_bordersComplete,
+                                           h->m_bordersComplete,
                                            m_mips,
                                            std::move(md5));
-//    m_mips.resize(1); // just keep the first element
-//    m_image->save("/tmp/tile.png");
-//    QFile f("C:/Temp/tile.astc");
-//    f.open(QIODevice::ReadWrite | QIODevice::Truncate);
-//    f.write(m_mips.front().data());
-//    f.close();
-//    QFile ff("/tmp/tilec.astc");
-//    ff.open(QIODevice::ReadOnly);
-//    m_mips.front().setData(ff.readAll());
-//    ff.close();
 }
 
 std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem,
@@ -905,29 +872,17 @@ std::shared_ptr<HeightmapBase> HeightmapASTC::fromHeightmap(const Heightmap &dem
             ima->setPixelColor(x,y,c);
         }
     }
-//    ima->save("/tmp/tile.png");
-    auto md5 = md5QImage(*ima);
+
+    auto md5 = md5QImage(*ima); // TODO: ship this with Heightmap instead
     std::shared_ptr<HeightmapASTC> res(new HeightmapASTC);
-    // compress
+
     res->m_minMax = dem.minMax();
     res->m_bordersComputed = dem.bordersComputed();
 
-    if (!NetworkConfiguration::astcEnabled) // FIXME reenable astc encoding one the scheme is clear
+    if (!NetworkConfiguration::astcHDREnabled)
         return res;
 
-#if 0
-    for (int y = 0; y < ima->size().height(); ++y) {
-        for (int x = 0; x < ima->size().width(); ++x) {
-            float meters = dem.elevation(x,y);
-            auto rgb = ima->pixel(x,y);
-            float decodedMeters = (qRed(rgb) * 256.
-                                   + qGreen(rgb)
-                                   + qBlue(rgb) * 0.00390625) - 32768.;
-            qDebug() << x<<","<<y<<": "<< meters <<" -> "<< decodedMeters;
-        }
-    }
-#endif
-
+    // compress
     res->initFromHeightmap(&dem, x,y,z, std::move(md5));
     return res;
 }
@@ -942,18 +897,14 @@ quint64 HeightmapASTC::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
 
 quint64 HeightmapBPTC::upload(QSharedPointer<QOpenGLTexture> &t)
 {
-//    if (!NetworkConfiguration::astcEnabled ) {
-//        return Heightmap::upload(t);
-//    } else {
-        return OpenGLTextureUtils::fillSingleTextureBPTC(t, m_size, elevations);
-//    }
+    return OpenGLTextureUtils::fillSingleTextureBPTC(t, m_size, elevations);
 }
 
 quint64 HeightmapBPTC::uploadTo2DArray(QSharedPointer<QOpenGLTexture> &texArray,
                                        int layer,
                                        int layers)
 {
-    // TODO
+    qFatal("Not Implemented!");
     return 0;
 }
 
