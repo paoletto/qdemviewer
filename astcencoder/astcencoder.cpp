@@ -36,6 +36,7 @@
 #include <QCryptographicHash>
 #include <QScopedPointer>
 #include <QBuffer>
+#include <QScopedPointer>
 
 #include <private/qtexturefilereader_p.h>
 
@@ -148,7 +149,7 @@ ASTCEncoder &ASTCEncoder::instance(ASTCEncoderConfig::BlockSize bs,
                                    ASTCEncoderConfig::SwizzleConfig swizzleConfig,
                                    ASTCEncoderConfig::ChannelWeights channelWeights)
 {
-    thread_local std::map<ASTCEncoderConfig, ASTCEncoder*> instances;
+    thread_local std::map<ASTCEncoderConfig, QScopedPointer<ASTCEncoder>> instances;
     const ASTCEncoderConfig c{bs,
                               bs,
                               profile,
@@ -156,7 +157,7 @@ ASTCEncoder &ASTCEncoder::instance(ASTCEncoderConfig::BlockSize bs,
                               swizzleConfig,
                               channelWeights};
     if (instances.find(c) == instances.end())
-        instances[c] = new ASTCEncoder(c);
+        instances[c].reset(new ASTCEncoder(c));
     return *instances[c];
 }
 
@@ -177,8 +178,9 @@ QTextureFileData ASTCEncoder::compress(QImage ima) { // Check whether astcenc_co
     image.dim_y = ima.height();
     image.dim_z = 1;
     image.data_type = ASTCENC_TYPE_U8;
-    const uint8_t* slices = ima.bits();
-    image.data = reinterpret_cast<void**>(const_cast<uint8_t *>(slices));
+
+    uint8_t* slices = ima.bits();
+    image.data = reinterpret_cast<void**>(&slices);
 
     // Space needed for 16 bytes of output per compressed block
     size_t comp_len = block_count_x * block_count_y * 16;

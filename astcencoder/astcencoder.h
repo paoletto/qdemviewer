@@ -106,6 +106,7 @@ struct ASTCEncoderPrivate;
 class ASTCEncoder
 {
 public:
+    ~ASTCEncoder();
     static ASTCEncoder& instance(ASTCEncoderConfig::BlockSize bs = ASTCEncoderConfig::BlockSize8x8,
                                  float quality = 85.f,
                                  ASTCEncoderConfig::ASTCProfile profile = ASTCEncoderConfig::ASTCENC_PRF_LDR,
@@ -152,7 +153,7 @@ protected:
 private:
     ASTCEncoder(ASTCEncoderConfig c);
 
-    ~ASTCEncoder();
+
 
     QScopedPointer<ASTCEncoderPrivate> d;
 
