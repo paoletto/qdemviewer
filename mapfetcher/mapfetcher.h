@@ -188,8 +188,8 @@ signals:
     void overzoomChanged();
 
 protected slots:
-    virtual void onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i);
-    void onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i);
+    virtual void onInsertTile(quint64 id, const TileKey k, std::shared_ptr<QImage> i);
+    void onInsertCoverage(quint64 id, std::shared_ptr<QImage> i);
 
 protected:
     MapFetcher(MapFetcherPrivate &dd, QObject *parent = nullptr);

@@ -215,13 +215,13 @@ quint64 MapFetcher::requestCoverage(const QList<QGeoCoordinate> &crds,
     return d->requestCoverage(crds, zoom, clip);
 }
 
-void MapFetcher::onInsertTile(const quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
+void MapFetcher::onInsertTile(quint64 id, const TileKey k, std::shared_ptr<QImage> i) {
     Q_D(MapFetcher);
     d->m_tileCache[id][k] = std::move(i);
     emit tileReady(id, k);
 }
 
-void MapFetcher::onInsertCoverage(const quint64 id, std::shared_ptr<QImage> i)
+void MapFetcher::onInsertCoverage(quint64 id, std::shared_ptr<QImage> i)
 {
     Q_D(MapFetcher);
     d->m_coverages[id] = std::move(i);

@@ -1230,7 +1230,9 @@ protected slots:
             return;
         reset();
         m_newTiles.clear();
-        m_newTiles[TileKey{0,0,0}] = m_demFetcher->heightmapCoverage(id);
+        m_newTiles[TileKey{0,0,10}] = m_demFetcher->heightmapCoverage(id);
+
+        m_newTiles[TileKey{0,0,10}]->printMinMax();
         delayedUpdate();
     }
 
