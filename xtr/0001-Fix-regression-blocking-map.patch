@@ -1,0 +1,88 @@
+From 9acdb9c1c4d42db438b4b60edac6af42bde3b818 Mon Sep 17 00:00:00 2001
+From: paolo <paolo.angelelli.qt@gmail.com>
+Date: Sat, 17 Feb 2024 14:46:48 +0200
+Subject: [PATCH] Fix regression blocking map
+
+Change-Id: Ie7f4da8e1062c322b4f4b39fb5307443682857e6
+---
+ src/location/configure.json                       |  2 +-
+ src/location/labs/qsg/qgeomapobjectqsgsupport.cpp | 13 ++++---------
+ src/location/labs/qsg/qgeomapobjectqsgsupport_p.h |  3 +--
+ 3 files changed, 6 insertions(+), 12 deletions(-)
+
+diff --git a/src/location/configure.json b/src/location/configure.json
+index 6d01a9a3..d1e623a1 100644
+--- a/src/location/configure.json
++++ b/src/location/configure.json
+@@ -9,7 +9,7 @@
+             "label": "Qt.labs.location experimental QML plugin",
+             "purpose": "Provides experimental QtLocation QML types",
+             "section": "Location",
+-            "condition": "config.opengl",
++            "condition": "features.opengl",
+             "output": [ "privateFeature" ]
+         },
+         "geoservices_osm": {
+diff --git a/src/location/labs/qsg/qgeomapobjectqsgsupport.cpp b/src/location/labs/qsg/qgeomapobjectqsgsupport.cpp
+index a978573d..0e1df8f6 100644
+--- a/src/location/labs/qsg/qgeomapobjectqsgsupport.cpp
++++ b/src/location/labs/qsg/qgeomapobjectqsgsupport.cpp
+@@ -157,14 +157,9 @@ void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *wind
+ {
+     if (!root)
+         return;
+-
+-    if (m_mapObjectsRootNode && m_mapObjectsRootNode->parent())
+-        root->appendChildNode(m_mapObjectsRootNode.get());
+-
+     if (!m_mapObjectsRootNode) {
+-        m_mapObjectsRootNode = std::make_unique<QDeclarativePolygonMapItemPrivateOpenGL::RootNode>();
+-        root->appendChildNode(m_mapObjectsRootNode.get());
+-        m_mapObjectsRootNode->setFlag(QSGNode::OwnedByParent, false);
++        m_mapObjectsRootNode = new QDeclarativePolygonMapItemPrivateOpenGL::RootNode();
++        root->appendChildNode(m_mapObjectsRootNode);
+     }
+ 
+     m_mapObjectsRootNode->removeAllChildNodes();
+@@ -189,7 +184,7 @@ void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *wind
+         MapObject &mo = m_mapObjects[i];
+         QQSGMapObject *sgo = mo.sgObject;
+         QSGNode *oldNode = mo.qsgNode;
+-        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, m_mapObjectsRootNode.get(), window);
++        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, m_mapObjectsRootNode, window);
+         if (Q_UNLIKELY(!mo.qsgNode)) {
+             qWarning() << "updateMapObjectNode for "<<mo.object->type() << " returned NULL";
+         } else if (mo.visibleNode && (mo.visibleNode->visible() != mo.object->visible())) {
+@@ -205,7 +200,7 @@ void QGeoMapObjectQSGSupport::updateMapObjects(QSGNode *root, QQuickWindow *wind
+         QQSGMapObject *sgo = mo.sgObject;
+         QSGNode *oldNode = mo.qsgNode;
+         sgo->updateGeometry(); // or subtree will be blocked
+-        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, m_mapObjectsRootNode.get(), window);
++        mo.qsgNode = sgo->updateMapObjectNode(oldNode, &mo.visibleNode, m_mapObjectsRootNode, window);
+         if (mo.qsgNode) {
+             if (mo.visibleNode && (mo.visibleNode->visible() != mo.object->visible())) {
+                 mo.visibleNode->setVisible(mo.object->visible());
+diff --git a/src/location/labs/qsg/qgeomapobjectqsgsupport_p.h b/src/location/labs/qsg/qgeomapobjectqsgsupport_p.h
+index cbbc0969..1ec966fa 100644
+--- a/src/location/labs/qsg/qgeomapobjectqsgsupport_p.h
++++ b/src/location/labs/qsg/qgeomapobjectqsgsupport_p.h
+@@ -59,7 +59,6 @@
+ #include <QtLocation/private/qdeclarativepolylinemapitem_p.h>
+ #include <QtLocation/private/qdeclarativepolygonmapitem_p_p.h>
+ #include <QtCore/qpointer.h>
+-#include <memory>
+ 
+ QT_BEGIN_NAMESPACE
+ struct Q_LOCATION_PRIVATE_EXPORT MapObject {
+@@ -86,7 +85,7 @@ public:
+     QList<MapObject> m_pendingMapObjects;
+     QList<MapObject> m_removedMapObjects;
+     QGeoMap *m_map = nullptr;
+-    std::unique_ptr<QDeclarativePolygonMapItemPrivateOpenGL::RootNode> m_mapObjectsRootNode;
++    QDeclarativePolygonMapItemPrivateOpenGL::RootNode *m_mapObjectsRootNode = nullptr;
+ };
+ 
+ QT_END_NAMESPACE
+-- 
+2.34.1
+
