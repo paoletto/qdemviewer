@@ -638,12 +638,15 @@ struct Tile
     quint64 m_rasterBytes{0};
     bool m_hasBorders{false};
     bool m_initialized{false};
+
     Heightmap m_dem;
     QSharedPointer<QOpenGLTexture> m_texDem; // To make it easily copyable
 
     std::shared_ptr<CompressedTextureData> m_map;
     std::map<TileKey, std::shared_ptr<CompressedTextureData>> m_rasterSubtiles;
     QSharedPointer<QOpenGLTexture> m_texMap;
+
+    QPair<float, float> m_minMaxElevation;
 
     std::shared_ptr<Tile> m_right;
     std::shared_ptr<Tile> m_bottom;
@@ -1370,6 +1373,7 @@ QSharedPointer<QOpenGLTexture> Tile::demTexture() {
     if (!m_dem.size().isEmpty() /*&& !m_texDem*/) {
         Heightmap &h = m_dem;
         m_hasBorders = h.m_hasBorders;
+        m_minMaxElevation = h.minMax();
 
         int maxHSize = std::max(h.m_size.width(), h.m_size.height());
         if (m_renderer.m_maxTexSize && maxHSize > m_renderer.m_maxTexSize) {
@@ -1491,6 +1495,8 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
     int idealRate = 16;
 #endif
 
+    QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
+    f->glEnable(GL_TEXTURE_2D);
     // TODO: streamline, fix, deduplicate
     QOpenGLShaderProgram *shader = (rasterTxt) ? m_renderer.m_shaderTextured.get()
                                                : m_renderer.m_shader.get();
@@ -1501,11 +1507,14 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
             shader = m_renderer.m_shaderJoinedDownsampledTextured.get();
     }
 
-    QOpenGLExtraFunctions *ef = QOpenGLContext::currentContext()->extraFunctions();
-    ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
 
+//    ef->glBindImageTexture(0, (demTxt) ? demTxt->textureId() : 0, 0, 0, 0,  GL_READ_ONLY, GL_RGBA8);
+
+    f->glActiveTexture(GL_TEXTURE0 + 1);
+    demTxt->bind();
     shader->bind();
-    f->glEnable(GL_TEXTURE_2D);
+    f->glActiveTexture(GL_TEXTURE0 + 0);
+
     if (rasterTxt)  {
         rasterTxt->bind();
     } else {
@@ -1530,6 +1539,9 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
     elevationScale *= reciprocalCircumference;
     elevationScale *= totalTiles;
 
+    shader->setUniformValue("raster", 0);
+    shader->setUniformValue("dem", 1);
+    shader->setUniformValue("minElevation", m_minMaxElevation.first);
     shader->setUniformValue("elevationScale", elevationScale);
     shader->setUniformValue("matrix", m);
     shader->setUniformValue("color", QColor(255,255,255,255));
@@ -1550,6 +1562,9 @@ void Tile::draw(const QDoubleMatrix4x4 &transformation,
         rasterTxt->release();
     else
         m_renderer.m_texWhite->release();
+
+    if (demTxt)
+        demTxt->release();
 }
 
 void TileRenderer::synchronize(QQuickFramebufferObject *item)

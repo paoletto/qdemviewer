@@ -103,8 +103,10 @@ struct Heightmap {
 
     float elevation(int x, int y) const;
     void setElevation(int x, int y, float e);
+    QPair<float, float> minMax() const;
 
     QSize m_size;
+    QPair<float, float> m_minMax;
     std::vector<float> elevations;
     bool m_hasBorders{false};
 };

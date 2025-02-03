@@ -70,8 +70,11 @@ void main()
 )";
 static constexpr char vertexShaderTile[] = R"(
 #version 450 core
-#define IMGFMT r32f
-layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
+uniform sampler2D dem;
+uniform float minElevation;
+float fetchDEM(ivec2 texelCoord) {
+    return texelFetch(dem, texelCoord, 0).r;
+}
 uniform highp mat4 matrix;
 uniform vec2 resolution;
 
@@ -107,7 +110,7 @@ vec4 neighbor(int id, int x, int y) {
     vec4 res = vertices[indices[id]];
     int iY = (columnSize - y - int(res.y)) * samplingStride + ijoined;
     int iX = (x + int(res.x)) * samplingStride + ijoined;
-    const float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) / elevationScale;
+    const float elevation =  max(-10000000, fetchDEM(ivec2(iX,iY))) / elevationScale;
     res = (vec4(x + cOff / float(samplingStride),
                 y + cOff / float(samplingStride), elevation, 0) + res) * gridScaling;
     res = clamp(res, vec4(0,0,-10000000,0), vec4(1,1,10000000,1));
@@ -142,8 +145,11 @@ void main()
 )";
 static constexpr char vertexShaderTileJoinedDownsampled[] = R"(
 #version 450 core
-#define IMGFMT r32f
-layout(binding=0, IMGFMT) uniform readonly highp image2D dem;
+uniform sampler2D dem;
+uniform float minElevation;
+float fetchDEM(ivec2 texelCoord) {
+    return texelFetch(dem, texelCoord, 0).r;
+}
 uniform highp mat4 matrix;
 
 uniform vec2 resolution;
@@ -195,7 +201,7 @@ vec4 neighbor(int id, int x, int y) {
                      , 0
                      , int(heightmapResolution.x) - 1);
 
-    float elevation =  max(-10000000, imageLoad(dem, ivec2(iX,iY)).r) * elevationScale;
+    float elevation =  max(-10000000, fetchDEM(ivec2(iX,iY))) * elevationScale;
     res = vec4(float(iX) + cOff,
                float(iiY) + cOff,
                elevation,

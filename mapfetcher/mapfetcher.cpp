@@ -242,12 +242,15 @@ Heightmap Heightmap::fromImage(const QImage &dem,
 
     const bool hasBorders = borders.size();
     h.setSize((!hasBorders) ? dem.size() : dem.size() + QSize(2,2));
+    float min_ = std::numeric_limits<float>::max();
+    float max_ = std::numeric_limits<float>::min();
     for (int y = 0; y < dem.height(); ++y) {
         for (int x = 0; x < dem.width(); ++x) {
             const float elevationMeters = elevationFromPixel(dem, x, y);
             h.setElevation( x + ((hasBorders) ? 1 : 0)
                            ,y + ((hasBorders) ? 1 : 0)
                            ,elevationMeters);
+            max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
         }
     }
 
@@ -282,7 +285,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
 #endif
 #if 1
     if (hasBorders) {
-        auto left = [&h, &borders, &elevationFromPixel] () {
+        auto left = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Left))
                 return;
             const auto &other = borders.at(Heightmap::Left);
@@ -290,40 +293,48 @@ Heightmap Heightmap::fromImage(const QImage &dem,
                 auto otherValue =
                         elevationFromPixel(*other, other->size().width()-1, y-1);
                 auto thisValue = h.elevation(1, y);
-                h.setElevation(0,y,(thisValue+otherValue)*.5);
+                const float elevationMeters = (thisValue+otherValue)*.5;
+                h.setElevation(0,y,elevationMeters);
+                max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
             }
         };
-        auto right = [&h, &borders, &elevationFromPixel] () {
+        auto right = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Right))
                 return;
             const auto &other = borders.at(Heightmap::Right);
             for (int y = 1; y < h.m_size.height() - 1; ++y) {
                 auto otherValue = elevationFromPixel(*other, 0, y-1);
                 auto thisValue = h.elevation(h.m_size.width() - 2, y);
-                h.setElevation(h.m_size.width() - 1, y, (thisValue+otherValue)*.5);
+                const float elevationMeters = (thisValue+otherValue)*.5;
+                h.setElevation(h.m_size.width() - 1, y, elevationMeters);
+                max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
             }
         };
-        auto top = [&h, &borders, &elevationFromPixel] () {
+        auto top = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Top))
                 return;
             const auto &other = borders.at(Heightmap::Top);
             for (int x = 1; x < h.m_size.width() - 1; ++x) {
                 auto otherValue = elevationFromPixel(*other, x - 1, other->size().height()-1);
                 auto thisValue = h.elevation(x, 1);
-                h.setElevation(x, 0, (thisValue+otherValue)*.5);
+                const float elevationMeters = (thisValue+otherValue)*.5;
+                h.setElevation(x, 0, elevationMeters);
+                max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
             }
         };
-        auto bottom = [&h, &borders, &elevationFromPixel] () {
+        auto bottom = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Bottom))
                 return;
             const auto &other = borders.at(Heightmap::Bottom);
             for (int x = 1; x < h.m_size.width() - 1; ++x) {
                 auto otherValue = elevationFromPixel(*other, x - 1, 0);
                 auto thisValue = h.elevation(x, h.m_size.height() - 2);
-                h.setElevation(x, h.m_size.height() - 1, (thisValue+otherValue)*.5);
+                const float elevationMeters = (thisValue+otherValue)*.5;
+                h.setElevation(x, h.m_size.height() - 1, elevationMeters);
+                max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
             }
         };
-        auto topLeft = [&h, &borders, &elevationFromPixel] () {
+        auto topLeft = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Top)
                 || !borders.at(Heightmap::Left)
                 || !borders.at(Heightmap::TopLeft))
@@ -333,9 +344,11 @@ Heightmap Heightmap::fromImage(const QImage &dem,
             auto thisValue = h.elevation(1, 1);
             auto left = h.elevation(0, 1);
             auto top = h.elevation(1, 0);
-            h.setElevation(0, 0, (thisValue+tl+left+top)*.25);
+            const float elevationMeters = (thisValue+tl+left+top)*.25;
+            h.setElevation(0, 0, elevationMeters);
+            max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
         };
-        auto bottomLeft = [&h, &borders, &elevationFromPixel] () {
+        auto bottomLeft = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Bottom)
                 || !borders.at(Heightmap::Left)
                 || !borders.at(Heightmap::BottomLeft))
@@ -345,9 +358,11 @@ Heightmap Heightmap::fromImage(const QImage &dem,
             auto thisValue = h.elevation(1, h.m_size.height() - 2);
             auto left = h.elevation(0, h.m_size.height() - 2);
             auto bottom = h.elevation(1, h.m_size.height() - 1);
-            h.setElevation(0, h.m_size.height() - 1, (thisValue+bl+left+bottom)*.25);
+            const float elevationMeters = (thisValue+bl+left+bottom)*.25;
+            h.setElevation(0, h.m_size.height() - 1, elevationMeters);
+            max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
         };
-        auto topRight = [&h, &borders, &elevationFromPixel] () {
+        auto topRight = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Top)
                 || !borders.at(Heightmap::Right)
                 || !borders.at(Heightmap::TopRight))
@@ -357,9 +372,11 @@ Heightmap Heightmap::fromImage(const QImage &dem,
             auto thisValue = h.elevation(h.m_size.width() - 2, 1);
             auto right = h.elevation(h.m_size.width() - 1, 1);
             auto top = h.elevation(h.m_size.width() - 2, 0);
-            h.setElevation(h.m_size.width() - 1, 0, (thisValue+tr+right+top)*.25);
+            const float elevationMeters = (thisValue+tr+right+top)*.25;
+            h.setElevation(h.m_size.width() - 1, 0, elevationMeters);
+            max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
         };
-        auto bottomRight = [&h, &borders, &elevationFromPixel] () {
+        auto bottomRight = [&h, &borders, &elevationFromPixel, &min_, &max_] () {
             if (!borders.at(Heightmap::Bottom)
                 || !borders.at(Heightmap::Right)
                 || !borders.at(Heightmap::BottomRight))
@@ -369,7 +386,9 @@ Heightmap Heightmap::fromImage(const QImage &dem,
             auto thisValue = h.elevation(h.m_size.width() - 2, h.m_size.height() - 2);
             auto right = h.elevation(h.m_size.width() - 1, h.m_size.height() - 2);
             auto bottom = h.elevation(h.m_size.width() - 2, h.m_size.height() - 1);
-            h.setElevation(h.m_size.width() - 1, h.m_size.height() - 1, (thisValue+br+right+bottom)*.25);
+            const float elevationMeters = (thisValue+br+right+bottom)*.25;
+            h.setElevation(h.m_size.width() - 1, h.m_size.height() - 1, elevationMeters);
+            max_ = std::max(elevationMeters,max_); min_ = std::min(elevationMeters,min_);
         };
         left();
         right();
@@ -379,6 +398,7 @@ Heightmap Heightmap::fromImage(const QImage &dem,
         topRight();
         bottomLeft();
         bottomRight();
+        h.m_minMax = QPair<float, float>(min_, max_);
     }
 #endif
     h.m_hasBorders = hasBorders;
@@ -463,6 +483,11 @@ float Heightmap::elevation(int x, int y) const
 void Heightmap::setElevation(int x, int y, float e)
 {
     elevations[y*m_size.width()+x] = e;
+}
+
+QPair<float, float> Heightmap::minMax() const
+{
+    return m_minMax;
 }
 
 
