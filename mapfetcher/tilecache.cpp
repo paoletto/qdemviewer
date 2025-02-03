@@ -72,8 +72,11 @@ CompoundTileCache::CompoundTileCache()
         qWarning("Impossible to create the SQLITE database for the cache");
         return;
     }
-
-    qDebug () << "CompoundTileCache("<< QThread::currentThread()->objectName() <<"): Opened "<<m_diskCache.databaseName() << m_diskCache.isOpen() << m_diskCache.lastError();
+    {
+        QFileInfo info(m_sqlitePath);
+        qDebug () << "CompoundTileCache("<< QThread::currentThread()->objectName() <<"): Opened "
+        <<m_diskCache.databaseName() << "(" << info.size() << ") " << m_diskCache.isOpen() << m_diskCache.lastError();
+    }
 
     static constexpr char schema[] = R"(
     CREATE TABLE IF NOT EXISTS Tile (

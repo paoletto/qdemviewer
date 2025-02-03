@@ -76,6 +76,7 @@
 #include <QJsonValue>
 
 #include <map>
+#include <array>
 #include <QMap>
 #include <math.h>
 #include <qmath.h>

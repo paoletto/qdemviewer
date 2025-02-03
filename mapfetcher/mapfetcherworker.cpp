@@ -57,6 +57,7 @@
 #include <cstdlib>
 #include <vector>
 #include <map>
+#include <array>
 
 struct GeoTileSpec {
     QGeoTileSpec ts;
