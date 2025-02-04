@@ -226,6 +226,9 @@ struct ASTCCompressedTextureData : public CompressedTextureData {
                                       int layers) override;
     QSize size() const override;
     bool hasCompressedData() const override;
+    std::shared_ptr<QImage> image() const override {
+        return m_image;
+    }
 
     static std::shared_ptr<ASTCCompressedTextureData> fromImage(
                                         const std::shared_ptr<QImage> &i,

@@ -1251,6 +1251,7 @@ protected slots:
             return;
         m_newMapRasters.clear(); // prb useless
         auto raster = m_rasterFetcher->tileCoverage(id);
+
         m_newMapRasters[TileKey{0,0,10}] =  std::move(raster);
         delayedUpdate();
     }

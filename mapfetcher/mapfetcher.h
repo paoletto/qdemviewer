@@ -122,7 +122,7 @@ struct CompressedTextureData {
                                               int layers) = 0;
     virtual QSize size() const = 0;
     virtual bool hasCompressedData() const = 0;
-
+    virtual std::shared_ptr<QImage> image() const = 0;
     static bool isFormatCompressed(GLint format);
 };
 
