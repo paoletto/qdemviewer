@@ -952,8 +952,9 @@ void MapFetcherWorker::onTileReplyForCoverageFinished() {
         return; // Already handled in networkReplyError
     }
 
-    auto *handler = new TileReplyData(reply,
-                                         *this);
+    auto *df = qobject_cast<DEMFetcherWorker *>(this);
+    auto *handler = (df) ? new DEMTileReplyData(reply, *this)
+                         : new TileReplyData(reply, *this);
     d->m_worker->schedule(handler);
 }
 
