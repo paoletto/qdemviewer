@@ -175,7 +175,7 @@ protected:
         if (dst.startsWith("file://"))
             dst = dst.mid(7);
         if (!QDir("/").mkpath(dst)) {
-            msg = "Failed creating path to store coverages at " + m_destination[id];
+            msg = "Failed creating path to store coverages at " + dst;
             qFatal("%s", msg.toStdString().c_str());
         }
 

@@ -253,7 +253,6 @@ Window {
         }
     } // Item
 
-
     QQD.FileDialog {
         id: fileDialogSave
         nameFilters: []
@@ -270,5 +269,4 @@ Window {
         onRejected: {
         }
     }
-
 }
