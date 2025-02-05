@@ -4,7 +4,8 @@ SUBDIRS = \
         mapfetcher \
         demviewer \
         astcencoder \
-        cacheupdater
+        cacheupdater \
+	downloader
 
 OTHER_FILES += \
     mapfetcher/mapfetcher.pro \
