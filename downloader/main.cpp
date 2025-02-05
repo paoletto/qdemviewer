@@ -173,7 +173,11 @@ protected:
         QString msg;
         auto dst = m_destination[id];
         if (dst.startsWith("file://"))
+#if defined(Q_OS_WINDOWS)
+            dst = dst.mid(8);
+#else
             dst = dst.mid(7);
+#endif
         if (!QDir("/").mkpath(dst)) {
             msg = "Failed creating path to store coverages at " + dst;
             qFatal("%s", msg.toStdString().c_str());
