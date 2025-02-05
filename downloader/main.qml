@@ -11,10 +11,29 @@ import Qt.labs.platform 1.1
 import QtQuick.Dialogs 1.3 as QQD
 
 Window {
+    id: root
     width: 1280
     height: 960
     visible: true
     title: qsTr("Map Coverage Downloader")
+
+    Settings {
+        id: settings
+
+        property alias mapCenter: overlay.center
+        property alias mapZoomLevel: overlay.zoomLevel
+        property alias appx: root.x
+        property alias appy: root.y
+        property alias zlsliderValue: zlslider.value
+        property alias zlMapSliderValue: zlMapSlider.value
+        property alias savePath: fileDialogSave.folder
+
+        Component.onCompleted: {
+            if (windows) {
+                fileName = StandardPaths.writableLocation(StandardPaths.AppDataLocation) + "/demviewer.ini"
+            }
+        }
+    }
 
     Item {
         anchors.fill: parent
@@ -245,6 +264,7 @@ Window {
         onAccepted: {
             fileDialogSave.close()
             let path = String(fileDialogSave.fileUrl)
+            fileDialogSave.folder = path
             maQuery.fireQuery(path)
         }
         onRejected: {
