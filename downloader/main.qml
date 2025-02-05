@@ -8,7 +8,7 @@ import QtPositioning 5.15
 import QtLocation 5.15
 import Qt.labs.settings 1.1
 import Qt.labs.platform 1.1
-//import MapFetcher 1.0
+import QtQuick.Dialogs 1.3 as QQD
 
 Window {
     width: 1280
@@ -94,6 +94,7 @@ Window {
             }
 
             MouseArea {
+                id: maQuery
                 anchors.fill: parent
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onPressed: {
@@ -113,7 +114,7 @@ Window {
                         overlay.displayedSelectionPolygon = []
                         if (mouse.modifiers & Qt.ShiftModifier &&
                             overlay.selectionPolygon.length > 2) {
-                            fireQuery()
+                            fileDialogSave.open()
                         } else {
                             overlay.selectionPolygon = overlay.displayedSelectionPolygon = []
                         }
@@ -124,9 +125,9 @@ Window {
                     parent.gesture.enabled = true
                 }
 
-                function fireQuery() {
+                function fireQuery(path) {
                     var res;
-                    utilities.download("/tmp/",
+                    utilities.download(path,
                                         parent.selectionPolygon,
                                         zlslider.value,
                                         zlMapSlider.value)
@@ -232,4 +233,22 @@ Window {
             }
         }
     } // Item
+
+
+    QQD.FileDialog {
+        id: fileDialogSave
+        nameFilters: []
+        title: "Please choose a directory to store coverages"
+        selectExisting: true
+        selectFolder: true
+
+        onAccepted: {
+            fileDialogSave.close()
+            let path = String(fileDialogSave.fileUrl)
+            maQuery.fireQuery(path)
+        }
+        onRejected: {
+        }
+    }
+
 }

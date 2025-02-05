@@ -170,26 +170,45 @@ protected:
     void finalizeRequest(RequestID id) {
         if (m_numResponses[id] < 2)
             return;
-
+        QString msg;
         auto dst = m_destination[id];
+        if (dst.startsWith("file://"))
+            dst = dst.mid(7);
         if (!QDir("/").mkpath(dst)) {
-            const QString msg = "Failed creating path to store coverages at " + m_destination[id];
+            msg = "Failed creating path to store coverages at " + m_destination[id];
             qFatal("%s", msg.toStdString().c_str());
         }
 
         auto res = m_coverage[id].raster->mirrored(false, true).save(dst + "/raster.png" );
-        if (!res) qFatal("failed to save raster.png");
+
+        if (!res) {
+            msg = "failed to save " + dst + "/raster.png";
+            qFatal("%s", msg.toStdString().c_str());
+        }
 
         // https://stackoverflow.com/a/2774014/962856
-        QByteArray dem(reinterpret_cast<const char*>(&m_coverage[id].heightmap->elevations.front()),
+        auto &h = m_coverage[id].heightmap;
+        QByteArray dem(reinterpret_cast<const char*>(&h->elevations.front()),
                        sizeof(float) * m_coverage[id].heightmap->elevations.size());
-        QSaveFile demFile(dst + "/dem.bin");
+        QString demDst = dst + "/dem_" +
+                QString::number(h->size().width()) + "x" +
+                QString::number(h->size().height()) + ".bin";
+        QSaveFile demFile(demDst);
         res = demFile.open(QIODevice::WriteOnly);
-        if (!res) qFatal("failed to save dem.bin");
+        if (!res) {
+            msg = "failed to save " + demDst;
+            qFatal("%s", msg.toStdString().c_str());
+        }
         res = demFile.write(dem);
-        if (!res) qFatal("failed to save dem.bin");
+        if (!res) {
+            msg = "failed to save " + demDst;
+            qFatal("%s", msg.toStdString().c_str());
+        }
         res = demFile.commit();
-        if (!res) qFatal("failed to save dem.bin");
+        if (!res) {
+            msg = "failed to save " + demDst;
+            qFatal("%s", msg.toStdString().c_str());
+        }
 
         m_coverage.remove(id);
         m_destination.remove(id);
